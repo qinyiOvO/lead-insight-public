@@ -144,7 +144,7 @@ DeepSeek 官方 API（OpenAI 兼容协议，JSON Output 模式）。**不做模�
 ## 项目结构
 
 ```
-lead-insight/
+sales-lead-intelligence-ranking/
 ├── lead-insight-backend/                     后端服务
 │   └── src/main/
 │       ├── java/com/leadinsight/
