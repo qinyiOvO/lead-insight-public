@@ -1,0 +1,56 @@
+# =============================================================================
+# 应用本地覆盖示例（本文件是「模板」，可以提交；真实密钥请写到别处）
+#
+# ⚠️ 真实配置文件【不要】建在本目录（src/main/resources）！
+#    正确位置是后端工程根目录，与 pom.xml 同级：
+#        lead-insight-backend/application-local.yml
+#    理由：
+#      1) application.yml 用 spring.config.import: optional:file:application-local.yml 引用它，
+#         file: 相对路径按【进程工作目录】解析，resources 下读不到（已实测）；
+#      2) resources 下的文件会被打进 jar 包，交作业/外发 jar 时密钥会一起泄露。
+#
+# 创建方式（二选一，推荐第一种）：
+#    方式一：直接在 lead-insight-backend/ 下新建 application-local.yml，
+#            内容照抄本模板中取消注释后的样子即可。
+#    方式二：命令行
+#            cd lead-insight-backend
+#            cp src/main/resources/application-local.yml.example application-local.yml
+#
+# application-local.yml 已被 .gitignore 覆盖（双重保险：提交钩子还会按文件名硬拦）。
+#
+# 与「环境变量」的关系：按 Spring Boot 配置优先级【操作系统环境变量 > 配置文件】，
+# 即两者都设时环境变量赢。请只选一种，避免日后分不清谁在生效。
+# =============================================================================
+# ── 数据库口令（2026-10-31 起不再写进仓库）─────────────────────────────────
+# 必须写变量名 DB_PASSWORD，不要写 spring.datasource.password：
+#   本文件是由 application.yml 的 spring.config.import 引入的，优先级高于 application.yml，
+#   但**低于** application-dev.yml。数据库口令定义在 application-dev.yml 里
+#   （password: ${DB_PASSWORD:}），所以在这里写 spring.datasource.password 会被它的空值顶掉，
+#   启动报 "Access denied ... (using password: NO)"。
+DB_PASSWORD: "<你的数据库口令>"
+
+# 如需改用个人数据库，取消注释并填写（url / username 同理可被本文件覆盖）
+# spring:
+#   datasource:
+#     url: jdbc:mysql://127.0.0.1:3306/lead_insight?serverTimezone=Asia/Shanghai&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true
+#     username: root
+
+jwt:
+  # 同上：jwt.secret 也定义在 application-dev.yml（${JWT_SECRET:}），所以这里要写变量名 JWT_SECRET。
+  # 用途：需要「重启后旧令牌仍有效」的联调场景；不配则每次启动随机生成，重启后需重新登录。
+  # 注意：不要保留空值行。
+# JWT_SECRET: "<至少 32 字节的随机串>"
+
+# 智能层配置（R2 起使用；不填则粘贴抽取自动降级为待人工处理，应用照常启动）。
+# 推荐优先用环境变量：set DEEPSEEK_API_KEY=sk-xxx
+# 如确要写进本地文件，两种写法都行（该文件已被 .gitignore 覆盖，禁止提交）：
+#   DEEPSEEK_API_KEY: "sk-xxx"
+#   llm:
+#     api-key: "sk-xxx"
+
+# ── 演示账号口令（2026-10-31 起不再写进仓库；不配则账号不创建、无法登录演示）──
+# 这是**示例模板**，请复制到同目录的 application-local.yml 再填真实值。
+# 同样写变量名：SEED_*_PASSWORD
+SEED_SPECIALIST_PASSWORD: "<销售专员口令>"
+SEED_SUPERVISOR_PASSWORD: "<销售主管口令>"
+SEED_PROBE_PASSWORD: "<限流探针口令>"

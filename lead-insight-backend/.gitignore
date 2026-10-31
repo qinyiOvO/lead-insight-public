@@ -1,0 +1,15 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+.mvn/
+!.gitignore
+application-local.yml
+application-local.yaml
+.env
+.env.*
+*.log
+logs/
+.idea/
+*.iml
+.vscode/
+*.class
+.DS_Store

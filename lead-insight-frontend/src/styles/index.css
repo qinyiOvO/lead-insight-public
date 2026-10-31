@@ -1,0 +1,72 @@
+/* 全局样式入口：只做令牌引用与最小重置，不写业务样式。 */
+@import './variables.css';
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--primary-hover);
+}
+
+/* 表格底部滚动条与表头对齐（EP 固定列常见问题） */
+.el-table th.el-table__cell {
+  background: var(--surface-2);
+  font-weight: var(--fw-medium);
+  color: var(--fg-2);
+}
+
+/* 业务区块标题：18px 卡片/区块标题，负字距 */
+.section-title {
+  font-size: var(--text-lg);
+  font-weight: var(--fw-semibold);
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+
+/* 只读字段底 */
+.field-readonly {
+  background: var(--surface-3);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+}
+
+/* 等宽纯文本（邮件原文等用户文本必须用 {{ }} / v-text 渲染，禁止 v-html） */
+.text-pre {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--fg-2);
+}

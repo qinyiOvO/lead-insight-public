@@ -1,0 +1,143 @@
+# =============================================================================
+# .gitignore — 毕业设计项目
+# 目的：确保密钥、本地配置、构建产物、IDE 配置永不进入 Git 仓库
+# 生成日期：2026-10-01
+# =============================================================================
+
+# --- 密钥与本地配置（最重要，绝不提交）---
+application-local.yml
+application-local.yaml
+application-local.properties
+application-*.local.yml
+*.local.yml
+*.local.yaml
+.env
+.env.local
+.env.*.local
+secrets/
+*.key
+*.pem
+*.p12
+*.jks
+
+# --- IDE 共享运行配置 ---
+# IDEA 的 .run/*.run.xml 是「可提交」的共享运行配置；若有人在 Run Configuration
+# 里用环境变量方式填密钥，密钥就会被写进该文件并提交。项目不用共享运行配置，直接忽略。
+.run/
+
+# =============================================================================
+# 上传范围：只传「业务代码功能」（用户 2026-10-02 要求）
+# -----------------------------------------------------------------------------
+# 会入库：lead-insight-backend/（后端业务代码）、lead-insight-frontend/（前端业务代码），
+#         以及 .gitignore / .gitleaks.toml / .github/（密钥防护，不含本机信息）
+# 不入库：docs/（设计文档，含大量本机路径与项目内部信息）、tools/、.githooks/、
+#         .workbuddy/、根目录辅助脚本、任何密钥文件
+# =============================================================================
+
+# --- 设计文档（含本机绝对路径与内部决策留痕，不上传）---
+/docs/
+
+# --- 根目录使用手册（含本机绝对路径：JDK/MySQL 安装路径、脚本与工程绝对路径，不上传）---
+/使用手册.md
+
+# --- 本地工具与门禁脚本（内含本机绝对路径）---
+/tools/
+
+# --- 端口守护进程运行时状态（.last-<port> 锁文件，不入库）---
+/.lanes/
+
+# --- Git 钩子（pre-commit/pre-push 内含本机 gitleaks 绝对路径；钩子是本机配置，无需入库）---
+/.githooks/
+
+# --- 根目录辅助脚本（含本机 JDK 路径与项目绝对路径）---
+/start-backend.sh
+/reset-demo.sh
+/reset-demo-data.sql
+
+# --- 论文材料与学习计划（2026-10-31 公开前补充）---
+# 论文/ 下含学校名、学院文件、定稿与评审表，属个人隐私信息；
+# 学习计划_项目掌握.md 是个人学习安排，非项目交付物。
+# 两者此前未被忽略也无跟踪记录 → 一旦执行 git add . 就会随公开仓库一起发布，故显式排除。
+/论文/
+/学习计划_项目掌握.md
+
+# --- 真实密钥文件（2026-10-02 排除；模板已放行）---
+# 真实密钥只写在工程根目录的 application-local.yml（不是 resources 下这份）。
+# 模板 application-local.yml.example 此前一并被忽略，原因是无法确认它内部是否只有占位符；
+# 公开前已逐项核过（4 个演示口令 0 命中、sk- 片段仅 6 字符占位）→ 改为随仓库发布，
+# 否则别人克隆下来没有任何配置样例可参照。改这个模板时务必保持纯占位符。
+application-local.yml
+!lead-insight-backend/src/main/resources/application-local.yml.example
+
+# --- AI 协作工作记忆（整体不入库，用户 2026-10-02 要求）---
+# 整个 .workbuddy/ 都是本人（含 AI 协作）的本地工作区：
+#   工作日志、决策过程、踩坑知识库、技能与门禁产物。
+# 它不属于交付物，且文本里可能残留讨论性的示例串 —— 一律不上传。
+# 注：该决定了推翻了早期"pitfalls.jsonl 可提交"的安排，知识库改为纯本地资产。
+.workbuddy/
+
+# --- Java / Maven ---
+target/
+build/
+out/
+*.class
+*.jar
+*.war
+*.ear
+!.mvn/wrapper/maven-wrapper.jar
+hs_err_pid*.log
+replay_pid*.log
+*.log
+
+# --- IDE ---
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
+.project
+.classpath
+
+# --- Node / Vue ---
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+coverage/
+
+# --- 操作系统 ---
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# --- 大文件与外部工具（不入库）---
+# 注：tools/ 已在文件上方「上传范围」段整体忽略，此处只兜住其余大文件。
+*.zip
+*.msi
+*.exe
+*.tar.gz
+
+# --- 临时文件 ---
+# 注：.workbuddy/ 已在文件上方「上传范围」段整体忽略，此处不再单列。
+*.tmp
+*.bak
+~$*
+# Maven 依赖树/classpath 转储（构建排查产物，含本机绝对路径，不入库）
+cp.txt
+*.cp.txt
+classpath.txt
+dump-*.txt
+
+# --- 密钥扫描产物（本地报告，不入库）---
+gitleaks-report.json
+gitleaks-report.*
+
+# --- 交付打包产物 ---
+dist-submission/

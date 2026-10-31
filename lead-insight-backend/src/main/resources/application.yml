@@ -1,0 +1,159 @@
+# =============================================================================
+# 公共配置（提交入库，不含任何密钥）—— SPEC §5.2 配置分层
+# 密钥与个人覆盖项一律放 application-local.yml（不提交）或环境变量
+# =============================================================================
+server:
+  port: 8080
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+
+spring:
+  application:
+    name: lead-insight-backend
+  profiles:
+    # 允许用环境变量切换 profile：默认 dev（本地零配置），部署时 SPRING_PROFILES_ACTIVE=prod。
+    # 原写法固定为 dev，会导致 application-prod.yml 里的 ${DB_URL}/${JWT_SECRET} 等外部注入永不生效。
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  # 可选外部配置：本地密钥文件 / .env（不存在时静默跳过，保证无 key 可运行）
+  config:
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:application-local.yml
+  jackson:
+    default-property-inclusion: always
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    serialization:
+      write-dates-as-timestamps: false
+  mvc:
+    throw-exception-if-no-handler-found: false
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    # 关闭二级缓存，避免逻辑删除与缓存交互产生脏读
+    cache-enabled: false
+  global-config:
+    banner: false
+    db-config:
+      id-type: auto
+      table-underline: true
+  mapper-locations: classpath*:/mapper/**/*.xml
+
+# JWT：expire 单位秒（2 小时）。secret 未配置时由 DataInitializer 兜底校验；
+# 开发默认值见 application-dev.yml（演示用，生产必须覆盖）。
+jwt:
+  expire-seconds: 7200
+  header: Authorization
+  prefix: "Bearer "
+
+# 优先级评分权重（@ConfigurationProperties(prefix="lead.scoring")），改配置即生效
+lead:
+  scoring:
+    intent:
+      max-score: 40
+      cooperation: 40
+      quote: 35
+      consult: 20
+      complaint: 15
+      irrelevant: 0
+    budget:
+      max-score: 20
+      amount-high: 500000
+      score-high: 20
+      amount-middle: 100000
+      score-middle: 15
+      amount-low: 10000
+      score-low: 8
+      score-none: 0
+    urgency:
+      max-score: 20
+      days-urgent: 7
+      score-urgent: 20
+      days-soon: 30
+      score-soon: 12
+      days-normal: 90
+      score-normal: 5
+      score-none: 0
+    company:
+      max-score: 10
+      large: 10
+      medium: 6
+      none: 0
+    keyword:
+      max-score: 10
+      per-hit: 2
+      words:
+        - 采购
+        - 招标
+        - 合同
+        - 试用
+        - 紧急
+        - 长期合作
+    # 优先级等级阈值（ARCHITECTURE-v1.1 §5.2）：>=high 为 HIGH；>=medium 为 MEDIUM；其余 LOW
+    level:
+      high: 70
+      medium: 40
+
+# 登录失败限流（AC-03）：同一账号窗口内失败达到阈值后拒绝
+security:
+  login:
+    max-failures: 5
+    window-seconds: 300
+
+# CORS 白名单（逗号分隔，可按需追加并行验证通道端口，如 :5174~:5178）。
+# 默认值保持用户主环境行为零变化（仅 Vite 默认端口 5173 两种写法）。
+app:
+  cors:
+    allowed-origins: http://localhost:5173,http://127.0.0.1:5173
+  security:
+    # 是否采信 X-Forwarded-For / X-Real-IP 判定来源 IP。
+    # 默认 false：这两个头由客户端自带、可任意伪造，采信等于让攻击者自己决定「被封哪个 IP」。
+    # 仅当确认部署在可信反向代理（Nginx 等）之后、且代理会覆盖而非追加该头时才置 true。
+    trust-forwarded-for: false
+  seed:
+    # 演示账号口令。仓库不提供默认值（原先写死在 DataInitializer 里 = 人人可登）。
+    # 取值：环境变量 SEED_*_PASSWORD，或在 application-local.yml 里写同名变量（写变量名本身，不要写 app.seed.*，
+    # 该文件由 spring.config.import 引入、优先级低于 application.yml，写 app.seed.* 会被这里的空值顶掉）。
+    # 未配置时对应账号不会被创建，启动日志会打出缺少哪一项。
+    specialist-password: ${SEED_SPECIALIST_PASSWORD:}
+    supervisor-password: ${SEED_SUPERVISOR_PASSWORD:}
+    probe-password: ${SEED_PROBE_PASSWORD:}
+
+# 智能层（R2，亮点1/4）。api-key 为空 = 无 key 模式：应用正常启动，
+# 粘贴抽取走 DEGRADED 降级路径（可读文案、不抛错、不阻塞主流程）。
+# key 只允许来自环境变量 DEEPSEEK_API_KEY 或 application-local.yml（已 gitignore）。
+llm:
+  base-url: https://api.deepseek.com
+  api-key: ${DEEPSEEK_API_KEY:}
+  model: deepseek-flash
+  connect-timeout-ms: 5000
+  read-timeout-ms: 60000
+  extract:
+    max-attempts: 3      # 总尝试上限（含首次），R-1 裁定；retry_count 取值域 0..2
+    max-tokens: 2048     # 需足够大，避免 JSON Output 被截断
+  rate-limit:            # 进程内令牌桶（M3 才接 Redis）
+    capacity: 10
+    refill-per-second: 1.0
+  circuit-breaker:       # 进程内熔断：连续失败 5 次 → 打开 300 秒
+    failure-threshold: 5
+    open-seconds: 300
+  quota:                 # 按账户的额度闸（成本红线，2026-10-31 收紧）
+    daily-limit: 10      # 每账户每自然日最多抽取 10 次（不是全站总量）；0 或负数 = 不限制
+    ban-days: 7          # 单日用满即封禁该账户 7 天，期间不允许再消耗模型额度；
+                         # 封禁落库（表 llm_quota_ban），重启不清零，到期自动解除；0 或负数 = 只当天拒绝、不封禁
+    ban-local-ip: false  # 本机(127.0.0.1/::1)与内网地址不落 IP 封禁：开发演示与反代转发都是本机地址，
+                         # 封了会把整台机器（含其他账户）锁一周。账户封禁不受此开关影响。
+                         # 真机公网部署时可置 true 收紧（此时请同时评估反代是否采信 X-Forwarded-For）。
+    ip-ban-min-accounts: 3
+                         # 封该 IP 前，要求同一 IP 上「当前已被封禁的不同账户数」达到此值。
+                         # 用途：不牵连共享出口（公司/校园/家庭 NAT）——一个人用满只连累自己；
+                         # 而一个人开 3 个号刷，三个账户落在同一 trigger_ip 上，第 3 次就会封该 IP。
+                         # 1 = 用满即封该 IP（旧行为）；0 或负数 = 永不封 IP，只封账户。
+
+logging:
+  level:
+    root: info
+    com.leadinsight: info

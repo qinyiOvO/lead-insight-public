@@ -1,0 +1,43 @@
+# =============================================================================
+# 本地开发环境（提交入库；不含任何真实密钥）
+# 数据库为评委/开发者本机演示库，凭据由用户主动提供
+# =============================================================================
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3306/lead_insight?serverTimezone=Asia/Shanghai&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    # 2026-10-31 与 jwt.secret 同样处理：不再把真实库口令提交入库。
+    # 取值优先级：环境变量 DB_PASSWORD → application-local.yml 里的同名变量 DB_PASSWORD。
+    # 两者都没配时本值为空串，启动会报 "Access denied ... (using password: NO)"，属预期：
+    #   在 lead-insight-backend/application-local.yml 写这一行（注意：写变量名本身，不要写 spring.datasource.password，
+    #   因为该文件由 spring.config.import 引入，优先级低于本文件，写 spring.datasource.password 会被这里的空值顶掉）：
+    #     DB_PASSWORD: "<你的数据库口令>"
+    #   或启动前 set DB_PASSWORD=<口令>
+    password: ${DB_PASSWORD:}
+    hikari:
+      minimum-idle: 2
+      maximum-pool-size: 10
+      connection-timeout: 10000
+      pool-name: LeadInsightHikariPool
+
+jwt:
+  # 2026-10-31 公开仓库前移除原先提交的字面量密钥。
+  # 原值可被任何读仓库的人拿到 → 用 HS256 + 该值即可伪造任意角色令牌（已实测：伪造 SUPERVISOR 令牌
+  # 访问 /api/v1/auth/me 返回 200）。而默认 profile 就是 dev，一旦按默认配置部署到可外部访问的机器，
+  # 等于鉴权形同虚设。
+  # 现方案：此处不写 secret，由 JwtUtil 在启动时生成本进程随机密钥（见 JwtUtil 的退化为随机密钥分支），
+  # 无密钥也能正常启动与登录；唯一代价是「重启后旧令牌失效，需重新登录」。
+  # 需要跨重启保持登录（如联调）时，把自定义密钥写进 application-local.yml（已 gitignore）：
+  #   jwt:
+  #     secret: <你自己生成的 32 字节以上随机串>
+  secret: ${JWT_SECRET:}
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+logging:
+  level:
+    com.leadinsight: debug
+    org.springframework.security: info

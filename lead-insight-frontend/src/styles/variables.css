@@ -1,0 +1,313 @@
+/* =====================================================================
+ * 企业销售线索智能识别系统 - Design Tokens v1.0
+ * 设计师：颜好看 | 生成日期：2025-09-30
+ * 用途：Vue3 + Element Plus 全局 CSS 变量，直接 import
+ * 四层架构：A1-identity / A1-structure / A2 / B-slot / C-extension
+ * 规则：组件内禁止写裸色值，一律引用本文件变量（#fff / #000 除外）
+ * ===================================================================== */
+
+:root {
+  /* -------------------------------------------------------------------
+   * 1. A1-identity · 颜色基础层
+   * ------------------------------------------------------------------- */
+  /* Surface 表面层 */
+  --bg: #F5F7FA;              /* 页面背景 */
+  --surface: #FFFFFF;         /* 卡片 / 表格 / 弹层 */
+  --surface-2: #F8FAFC;       /* 表头 / 次级 / 斑马纹 */
+  --surface-3: #F1F5F9;       /* 内嵌区块 / 只读字段 */
+
+  /* Foreground 前景层 */
+  --fg: #1E293B;              /* 主文字 */
+  --fg-2: #475569;            /* 次级文字 */
+  --fg-3: #64748B;            /* 弱文字 / 标签文字 */
+  --meta: #94A3B8;            /* 元数据 / 占位 / 禁用 */
+
+  /* Border 边框层 */
+  --border-strong: #CBD5E1;   /* 强边框 */
+  --border: #E2E8F0;          /* 默认边框 */
+  --border-soft: #F1F5F9;     /* 弱分割 */
+  --divider: #E9EEF3;         /* 区块分隔 */
+
+  /* Accent 强调色（Slate Blue，纯色，非渐变） */
+  --primary: #4F46E5;
+  --primary-hover: #4338CA;
+  --primary-active: #3730A3;
+  --primary-subtle: #EEF2FF;  /* 选中行 / 当前导航 */
+  --primary-border: #C7D2FE;
+  --primary-on: #FFFFFF;      /* 强调色上的前景 */
+
+  /* -------------------------------------------------------------------
+   * 2. A2 · 语义色（success / warning / danger / info / neutral）
+   * ------------------------------------------------------------------- */
+  --success: #16A34A;
+  --success-subtle: #F0FDF4;
+  --success-border: #BBF7D0;
+  --success-text: #15803D;
+
+  --warning: #D97706;
+  --warning-subtle: #FFFBEB;
+  --warning-border: #FDE68A;
+  --warning-text: #B45309;
+
+  --danger: #DC2626;
+  --danger-subtle: #FEF2F2;
+  --danger-border: #FECACA;
+  --danger-text: #B91C1C;
+
+  --info: #2563EB;
+  --info-subtle: #EFF6FF;
+  --info-border: #BFDBFE;
+  --info-text: #1D4ED8;
+
+  --neutral: #64748B;
+  --neutral-subtle: #F1F5F9;
+  --neutral-border: #E2E8F0;
+  --neutral-text: #475569;
+
+  /* -------------------------------------------------------------------
+   * 3. C-extension · 优先级（色 + 方向图标 + 文字 三通道，色盲友好）
+   * ------------------------------------------------------------------- */
+  --priority-high-text: #B91C1C;
+  --priority-high-bg: #FEF2F2;
+  --priority-high-border: #FECACA;
+
+  --priority-medium-text: #B45309;
+  --priority-medium-bg: #FFFBEB;
+  --priority-medium-border: #FDE68A;
+
+  --priority-low-text: #475569;
+  --priority-low-bg: #F1F5F9;
+  --priority-low-border: #E2E8F0;
+
+  /* -------------------------------------------------------------------
+   * 4. C-extension · 线索状态（实心圆点 + 文字，四态）
+   * ------------------------------------------------------------------- */
+  --status-new: #2563EB;       /* 新线索 */
+  --status-new-bg: #EFF6FF;
+  --status-new-text: #1D4ED8;
+
+  --status-following: #D97706; /* 跟进中 */
+  --status-following-bg: #FFFBEB;
+  --status-following-text: #B45309;
+
+  --status-won: #16A34A;       /* 已成交 */
+  --status-won-bg: #F0FDF4;
+  --status-won-text: #15803D;
+
+  --status-invalid: #64748B;   /* 无效（中性灰，非红） */
+  --status-invalid-bg: #F1F5F9;
+  --status-invalid-text: #475569;
+
+  /* -------------------------------------------------------------------
+   * 4b. C-extension · 导入任务状态（五态，独立枚举，仅别名，不新增色值）
+   * 注意：与上方"线索状态四态"是两套枚举，禁止互用 Token
+   * 任务状态始终伴随进度数值，且 FAILED 用红（线索四态不含红）
+   * ------------------------------------------------------------------- */
+  --task-pending: var(--neutral);  /* PENDING  排队中 */
+  --task-running: var(--info);     /* RUNNING  处理中 */
+  --task-success: var(--success);  /* SUCCESS  已完成 */
+  --task-partial: var(--warning);  /* PARTIAL  部分失败 */
+  --task-failed: var(--danger);    /* FAILED   失败 */
+
+  /* -------------------------------------------------------------------
+   * 5. C-extension · 意图类别（浅底 pill，五类）
+   * ------------------------------------------------------------------- */
+  --cat-inquiry: #2563EB;      /* 咨询 */
+  --cat-inquiry-bg: #EFF6FF;
+  --cat-inquiry-text: #1D4ED8;
+
+  --cat-quote: #EA580C;        /* 报价 */
+  --cat-quote-bg: #FFF7ED;
+  --cat-quote-text: #C2410C;
+
+  --cat-partner: #0D9488;      /* 合作 */
+  --cat-partner-bg: #F0FDFA;
+  --cat-partner-text: #0F766E;
+
+  --cat-complaint: #DC2626;    /* 投诉 */
+  --cat-complaint-bg: #FEF2F2;
+  --cat-complaint-text: #B91C1C;
+
+  --cat-invalid: #64748B;      /* 无关（类别第五类，R-6 裁定用词；与状态"无效"区分） */
+  --cat-invalid-bg: #F1F5F9;
+  --cat-invalid-text: #475569;
+
+  /* -------------------------------------------------------------------
+   * 6. C-extension · 图表色板（最多 6-8 色，禁彩虹）
+   * ------------------------------------------------------------------- */
+  --chart-1: #4F46E5;  /* 总量 / 新增趋势 */
+  --chart-2: #2563EB;  /* 咨询 */
+  --chart-3: #0D9488;  /* 合作 */
+  --chart-4: #EA580C;  /* 报价 */
+  --chart-5: #DC2626;  /* 投诉 */
+  --chart-6: #16A34A;  /* 已成交 */
+  --chart-7: #64748B;  /* 无关（类别）/ 无效（状态） */
+  --chart-8: #94A3B8;  /* 其他 / 基线 */
+
+  /* -------------------------------------------------------------------
+   * 7. A1-identity · 字体
+   * ------------------------------------------------------------------- */
+  --font-sans: Inter, "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB",
+               "Source Han Sans SC", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas,
+               "Cascadia Mono", monospace;
+
+  /* -------------------------------------------------------------------
+   * 8. A1-structure · 字号阶梯（固定 rem）
+   * ------------------------------------------------------------------- */
+  --text-xs: 0.75rem;    /* 12px 标签 / 角标 */
+  --text-sm: 0.8125rem;  /* 13px 表格密集 / 元信息 */
+  --text-base: 0.875rem; /* 14px UI 正文基准（与 EP 一致） */
+  --text-md: 1rem;       /* 16px 长文本 */
+  --text-lg: 1.125rem;   /* 18px 卡片 / 区块标题 */
+  --text-xl: 1.25rem;    /* 20px 页面 / 抽屉标题 */
+  --text-2xl: 1.5rem;    /* 24px 关键数字 / 登录标题 */
+  --text-3xl: 1.875rem;  /* 30px 登录主标题 */
+
+  /* 行高 */
+  --leading-tight: 1.25;
+  --leading-snug: 1.4;
+  --leading-body: 1.5;
+  --leading-relaxed: 1.6;
+
+  /* 字重（系统字体栈，非可变字重） */
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+
+  /* 字距 */
+  --tracking-tight: -0.02em;   /* 大标题 */
+  --tracking-normal: 0;        /* 正文 */
+  --tracking-wide: 0.06em;     /* ALL CAPS / 全大写标签 */
+
+  /* -------------------------------------------------------------------
+   * 9. A1-structure · 间距（4px 基准）
+   * ------------------------------------------------------------------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* -------------------------------------------------------------------
+   * 10. A1-structure · 圆角（卡片上限 8px）
+   * ------------------------------------------------------------------- */
+  --radius-sm: 4px;    /* 标签 / 徽章 / 输入框 */
+  --radius-md: 6px;    /* 按钮 / 卡片 / 表格容器 */
+  --radius-lg: 8px;    /* 弹窗 / 抽屉 */
+  --radius-full: 9999px;
+
+  /* -------------------------------------------------------------------
+   * 11. A2 · 阴影（3 级，hairline 优先于阴影）
+   * ------------------------------------------------------------------- */
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.12);
+
+  /* -------------------------------------------------------------------
+   * 12. A2 · 动效（收敛值 150ms，禁弹跳）
+   * ------------------------------------------------------------------- */
+  --duration-instant: 100ms;
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --duration-slow: 250ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+
+  /* 聚焦环 */
+  --focus-ring: 0 0 0 3px rgba(79, 70, 229, 0.28);
+
+  /* -------------------------------------------------------------------
+   * 13. A2 · 层级 z-index（对齐 Element Plus）
+   * ------------------------------------------------------------------- */
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-dropdown: 1000;
+  --z-fixed: 1020;
+  --z-drawer: 1050;
+  --z-modal: 2000;
+  --z-popover: 2010;
+  --z-message: 3000;
+
+  /* -------------------------------------------------------------------
+   * 14. A1-structure · 布局与断点（桌面端，>=1280px）
+   * ------------------------------------------------------------------- */
+  --container-max: 1440px;
+  --sidebar-width: 200px;
+  --sidebar-collapsed: 56px;
+  --topbar-height: 56px;
+  --row-height-table: 44px;     /* 表格行高（一屏 >=12 行） */
+  --content-gutter: 24px;
+
+  /* -------------------------------------------------------------------
+   * 15. Element Plus 变量桥接（使 EP 组件自动对齐本系统）
+   * ------------------------------------------------------------------- */
+  --el-color-primary: var(--primary);
+  --el-color-success: var(--success);
+  --el-color-warning: var(--warning);
+  --el-color-danger: var(--danger);
+  --el-color-error: var(--danger);
+  --el-color-info: var(--neutral);
+  --el-border-radius-base: var(--radius-sm);
+  --el-border-radius-small: var(--radius-sm);
+  --el-font-size-base: var(--text-base);
+  --el-text-color-primary: var(--fg);
+  --el-text-color-regular: var(--fg-2);
+  --el-text-color-secondary: var(--fg-3);
+  --el-text-color-placeholder: var(--meta);
+  --el-border-color: var(--border);
+  --el-border-color-light: var(--border-soft);
+  --el-bg-color: var(--surface);
+  --el-bg-color-page: var(--bg);
+  --el-fill-color-blank: var(--surface);
+}
+
+/* =====================================================================
+ * 语义工具类（可选，供快速实现；组件仍应优先引用变量）
+ * ===================================================================== */
+
+/* 数字单元格：右对齐 + 等宽 */
+.num {
+  font-family: var(--font-mono);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 表格行高 44px */
+.el-table td.el-table__cell,
+.el-table th.el-table__cell {
+  height: var(--row-height-table);
+}
+
+/* 聚焦可见环 */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* 文本截断 */
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* =====================================================================
+ * 动效降级：尊重用户系统偏好
+ * ===================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
