@@ -4,10 +4,12 @@
  * 约定：
  * 1. 请求拦截注入 `Authorization: Bearer <token>`。
  * 2. 响应拦截统一解包后端 `{code,message,data}`：code===0 时把 data 交给调用方；
- *    非 0 时弹 ElMessage.error(message) 并 reject（抛出 BizError，携带 code）。
+ *    非 0 时弹 ElMessage.error 并 reject（抛出 BizError，携带 code）。
+ *    其中**业务错误码白名单**（见下）透传后端受控中文文案；其余码（含 50000 与未知码）
+ *    一律替换为中文兜底文案，不透传后端 message（DEF-08 / AC-34：不暴露堆栈与内部细节）。
  * 3. 认证类错误（401 / 40100 / 40101）-> 清 token 并跳 /login（AC-06）。
  *    权限类错误（403 / 40300）-> 跳 /403（AC-05）。
- * 4. `silent: true` 的请求不自动弹提示，由调用方就地展示后端 message。
+ * 4. `silent: true` 的请求不自动弹提示，由调用方就地展示 message（已经兜底文案过滤）。
  *
  * 开发自查：仅当 import.meta.env.DEV 且 VITE_USE_MOCK==='true' 时改走内存 Mock，
  * 该分支在生产构建中被静态消除，生产代码路径不包含 Mock。
@@ -23,8 +25,28 @@ import type { R } from '@/types/common';
 const UNAUTHORIZED_CODES = new Set([401, 40100, 40101]);
 const FORBIDDEN_CODES = new Set([403, 40300]);
 
+/**
+ * 业务错误码白名单（DEF-08 / AC-34，对齐后端 ResultCode 枚举）：
+ * 这些码的 message 是后端受控的中文业务文案——40001 字段级校验、40400 资源不存在、
+ * 40901 内容重复、42201 非法状态迁移、42900 限流、50301 模型不可用，以及认证/权限类提示，
+ * 对用户有可读性与行动指导价值，允许透传；
+ * 其余码（50000 系统内部错误及任何未知码）一律走中文兜底，防止堆栈/包名/SQL 经 message 外泄。
+ */
+const BUSINESS_MESSAGE_CODES = new Set([40001, 40100, 40101, 40300, 40400, 40901, 42201, 42900, 50301]);
+
+/** 非业务码的统一中文兜底文案（替代后端原始 message） */
+const FALLBACK_ERROR_MESSAGE = '服务异常，请稍后重试';
+/** 网络层异常（无 R 响应体：断网/超时/CORS 等）的统一中文兜底文案 */
+const NETWORK_ERROR_MESSAGE = '网络异常，请稍后重试';
+
+/** 非业务码不透传后端 message，统一中文兜底（DEF-08 / AC-34） */
+function resolveMessage(code: number, message: string): string {
+  return BUSINESS_MESSAGE_CODES.has(code) && message ? message : FALLBACK_ERROR_MESSAGE;
+}
+
 function buildError(code: number, message: string, silent?: boolean): BizError {
-  const err = new BizError(code, message);
+  const text = resolveMessage(code, message);
+  const err = new BizError(code, text);
   if (UNAUTHORIZED_CODES.has(code)) {
     clearAuth();
     navigateTo('/login');
@@ -35,7 +57,7 @@ function buildError(code: number, message: string, silent?: boolean): BizError {
     return err;
   }
   if (!silent) {
-    ElMessage.error(message || '请求失败，请稍后重试');
+    ElMessage.error(text);
   }
   return err;
 }
@@ -84,7 +106,8 @@ service.interceptors.response.use(
       throw buildError(status, status === 403 ? '无权访问该资源' : '登录状态已失效', silent);
     }
     if (!silent) {
-      ElMessage.error(error.message || '网络异常，请稍后重试');
+      // 网络层异常同样只显示中文兜底，不透传 axios 的英文 message（DEF-08 / AC-34）
+      ElMessage.error(NETWORK_ERROR_MESSAGE);
     }
     throw error;
   },

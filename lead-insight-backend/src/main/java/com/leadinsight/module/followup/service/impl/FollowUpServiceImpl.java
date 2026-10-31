@@ -52,7 +52,9 @@ public class FollowUpServiceImpl implements FollowUpService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public FollowUpVO create(Long leadId, FollowUpCreateRequest request, Long userId) {
-        leadAccessService.getOperable(leadId, userId);
+        // DEF-01：记录跟进必须「已认领且为本人」（PRD §3.3「记录跟进过程：仅已认领线索」）。
+        // 未认领一律 40300——自己创建的未认领线索也不例外（仅改 getOperable 覆盖不了该场景）。
+        leadAccessService.getClaimed(leadId, userId);
         LeadFollowUp entity = new LeadFollowUp();
         entity.setLeadId(leadId);
         entity.setUserId(userId);
@@ -63,6 +65,15 @@ public class FollowUpServiceImpl implements FollowUpService {
         FollowUpVO vo = FollowUpVO.from(leadFollowUpMapper.selectById(entity.getId()));
         followUpUserEnricher.enrich(vo);
         return vo;
+    }
+
+    @Override
+    public boolean hasFollowUps(Long leadId) {
+        // DEF-02：删除前置校验。计数含全部来源（手动跟进 + 认领/状态迁移自动留痕）——
+        // 只要有任何留痕，删除即被拒绝，审计链不随线索消失。
+        Long count = leadFollowUpMapper.selectCount(Wrappers.<LeadFollowUp>lambdaQuery()
+                .eq(LeadFollowUp::getLeadId, leadId));
+        return count != null && count > 0;
     }
 
     @Override

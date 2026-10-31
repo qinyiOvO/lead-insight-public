@@ -62,15 +62,19 @@ public final class ImportTaskRules {
     }
 
     /**
-     * 任务终态判定（K-1 裁定字面口径）：
-     * failCount==0 → SUCCESS（含全部去重命中的边界：去重不算失败，无一转人工/降级）；
-     * successCount==0 且 duplicateCount==0 → FAILED（全部条目转人工/降级或创建异常，无一自动成功）；
-     * 其余混合 → PARTIAL。
+     * 任务终态判定（DEF-04 四桶口径，替代原 K-1 三桶；2026-10-31 总监核定分支序）：
+     * failCount==0 且 manualCount==0 → SUCCESS（含全部去重命中的边界：去重不算失败；
+     * 全零任务按旧代码防御行为仍为 SUCCESS）；
+     * successCount==0 且 duplicateCount==0 且 manualCount==0 → FAILED（全部条目创建异常，无一产线索）；
+     * 其余（有转人工 manualCount>0 / 有失败且部分成功 / 混合）→ PARTIAL。
+     * 转人工的线索其实已入库，标 FAILED 会误导用户以为一条没导进来（K-1 Amendment：DEF-04）。
      */
-    public static ImportTaskStatus finalStatus(int successCount, int duplicateCount, int failCount) {        if (failCount == 0) {
+    public static ImportTaskStatus finalStatus(int successCount, int duplicateCount,
+                                               int manualCount, int failCount) {
+        if (failCount == 0 && manualCount == 0) {
             return ImportTaskStatus.SUCCESS;
         }
-        if (successCount == 0 && duplicateCount == 0) {
+        if (successCount == 0 && duplicateCount == 0 && manualCount == 0) {
             return ImportTaskStatus.FAILED;
         }
         return ImportTaskStatus.PARTIAL;

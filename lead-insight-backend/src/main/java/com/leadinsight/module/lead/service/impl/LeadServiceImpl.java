@@ -203,6 +203,10 @@ public class LeadServiceImpl implements LeadService {
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id, Long userId) {
         leadAccessService.getOperable(id, userId);
+        // DEF-02：PRD §3.3 有跟进记录的线索不许删（含认领/状态迁移自动留痕，审计链不随线索从界面消失）
+        if (followUpService.hasFollowUps(id)) {
+            throw new BizException(ResultCode.FORBIDDEN, "该线索已有跟进记录，不能删除（跟进记录需留痕）");
+        }
         // 并发防护：带归属条件的逻辑删除，影响行数为 0 表示归属已变更（他人认领）或已被删除
         int rows = leadMapper.softDeleteByIdAndOwner(id, userId);
         assertAffected(rows, "删除失败：线索归属已被他人变更，请刷新后重试");

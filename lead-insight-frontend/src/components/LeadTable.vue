@@ -77,6 +77,7 @@ function isUnassigned(row: LeadVO): boolean {
 <template>
   <el-table
     class="lead-table"
+    v-loading="loading"
     :data="rows"
     :default-sort="defaultSort"
     row-key="id"

@@ -41,7 +41,8 @@ class FollowUpServiceImplUserNameTest {
     @BeforeEach
     void allowVisibility() {
         when(leadAccessService.getVisible(any(), any(), any())).thenReturn(new Lead());
-        when(leadAccessService.getOperable(any(), any())).thenReturn(new Lead());
+        // DEF-01：create 走「已认领且为本人」校验（getClaimed），不再是 getOperable
+        when(leadAccessService.getClaimed(any(), any())).thenReturn(new Lead());
     }
 
     private static LeadFollowUp row(Long id, Long userId, String content) {

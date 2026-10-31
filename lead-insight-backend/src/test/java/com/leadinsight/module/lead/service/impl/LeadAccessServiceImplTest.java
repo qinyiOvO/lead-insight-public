@@ -10,12 +10,15 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * 读侧可见性守卫单测（横向越权防护，对齐 PRD §3.3 权限矩阵）。
+ * 读侧可见性 + 写侧可操作性守卫单测（横向越权防护，对齐 PRD §3.3 权限矩阵）。
  * 口径：SUPERVISOR 全量只读；SPECIALIST 仅本人认领 + 未认领池（owner_id IS NULL）。
+ * getOperable（DEF-01/02/03 收紧）：未认领须创建者本人、已认领须负责人本人；
+ * getClaimed（DEF-01）：写跟进必须已认领且为本人。
  */
 class LeadAccessServiceImplTest {
 
@@ -26,6 +29,12 @@ class LeadAccessServiceImplTest {
         Lead lead = new Lead();
         lead.setId(id);
         lead.setOwnerId(ownerId);
+        return lead;
+    }
+
+    private static Lead lead(long id, Long ownerId, Long createdBy) {
+        Lead lead = lead(id, ownerId);
+        lead.setCreatedBy(createdBy);
         return lead;
     }
 
@@ -76,14 +85,82 @@ class LeadAccessServiceImplTest {
         assertEquals(ResultCode.NOT_FOUND, ex.getResultCode());
     }
 
-    @Test
-    @DisplayName("getOperable 保持原口径：未认领或本人可操作，他人已认领 403")
-    void operableStillGuarded() {
-        when(leadMapper.selectById(20L)).thenReturn(lead(20L, null));
-        assertNotNull(access.getOperable(20L, 1L));
+    // ---------------------------------------------------------- getOperable（DEF-01/02/03）
 
-        when(leadMapper.selectById(21L)).thenReturn(lead(21L, 2L));
+    @Test
+    @DisplayName("getOperable：本人创建的未认领线索 → 放行（PRD §3.3「自己创建」）")
+    void operable_allowsOwnUnclaimed() {
+        when(leadMapper.selectById(20L)).thenReturn(lead(20L, null, 1L));
+        assertNotNull(access.getOperable(20L, 1L));
+    }
+
+    @Test
+    @DisplayName("getOperable：他人创建且未认领的线索 → 403（DEF-03 越权编辑/删除防线）")
+    void operable_deniesOthersUnclaimed() {
+        when(leadMapper.selectById(21L)).thenReturn(lead(21L, null, 2L));
         BizException ex = assertThrows(BizException.class, () -> access.getOperable(21L, 1L));
         assertEquals(ResultCode.FORBIDDEN, ex.getResultCode());
+        assertEquals(403, ex.getResultCode().getHttpStatus());
+        assertTrue(ex.getMessage().contains("他人创建"), "message 须说清原因，实际=" + ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("getOperable：本人已认领的线索 → 放行（PRD §3.3「已认领」）")
+    void operable_allowsOwnClaimed() {
+        when(leadMapper.selectById(22L)).thenReturn(lead(22L, 1L, 2L));
+        assertNotNull(access.getOperable(22L, 1L));
+    }
+
+    @Test
+    @DisplayName("getOperable：他人已认领的线索 → 403（回归：原口径保持）")
+    void operable_deniesOthersClaimed() {
+        when(leadMapper.selectById(23L)).thenReturn(lead(23L, 2L, 2L));
+        BizException ex = assertThrows(BizException.class, () -> access.getOperable(23L, 1L));
+        assertEquals(ResultCode.FORBIDDEN, ex.getResultCode());
+        assertTrue(ex.getMessage().contains("他人认领"), "message 须说清原因，实际=" + ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("getOperable：未认领且创建者信息缺失（存量脏数据）→ 按最不利口径 403")
+    void operable_deniesUnclaimedWithoutCreator() {
+        when(leadMapper.selectById(24L)).thenReturn(lead(24L, null, null));
+        BizException ex = assertThrows(BizException.class, () -> access.getOperable(24L, 1L));
+        assertEquals(ResultCode.FORBIDDEN, ex.getResultCode());
+    }
+
+    // ---------------------------------------------------------- getClaimed（DEF-01）
+
+    @Test
+    @DisplayName("getClaimed：本人已认领 → 放行")
+    void claimed_allowsOwnClaimed() {
+        when(leadMapper.selectById(30L)).thenReturn(lead(30L, 1L, 2L));
+        assertNotNull(access.getClaimed(30L, 1L));
+    }
+
+    @Test
+    @DisplayName("getClaimed：未认领（含本人创建）→ 403「请先认领」（DEF-01 核心）")
+    void claimed_deniesUnclaimedEvenOwnCreated() {
+        when(leadMapper.selectById(31L)).thenReturn(lead(31L, null, 1L));
+        BizException ex = assertThrows(BizException.class, () -> access.getClaimed(31L, 1L));
+        assertEquals(ResultCode.FORBIDDEN, ex.getResultCode());
+        assertEquals(403, ex.getResultCode().getHttpStatus());
+        assertTrue(ex.getMessage().contains("认领"), "message 须引导先认领，实际=" + ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("getClaimed：他人已认领 → 403")
+    void claimed_deniesOthersClaimed() {
+        when(leadMapper.selectById(32L)).thenReturn(lead(32L, 2L, 2L));
+        BizException ex = assertThrows(BizException.class, () -> access.getClaimed(32L, 1L));
+        assertEquals(ResultCode.FORBIDDEN, ex.getResultCode());
+        assertTrue(ex.getMessage().contains("他人认领"), "message 须说清原因，实际=" + ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("getClaimed：线索不存在 → 404")
+    void claimed_missingLeadNotFound() {
+        when(leadMapper.selectById(99L)).thenReturn(null);
+        BizException ex = assertThrows(BizException.class, () -> access.getClaimed(99L, 1L));
+        assertEquals(ResultCode.NOT_FOUND, ex.getResultCode());
     }
 }

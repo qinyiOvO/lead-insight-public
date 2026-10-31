@@ -39,6 +39,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtUtil jwtUtil;
     private final JwtUserDetailsService jwtUserDetailsService;
+    private final TokenBlacklist tokenBlacklist;
 
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request,
@@ -52,6 +53,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         try {
             Claims claims = jwtUtil.parse(token);
+            // DEF-07：登出吊销检查——签名/过期校验之后、装载用户之前。
+            // 命中黑名单按 40100 拒绝（与「令牌无效」同码，不暴露「曾登录过」的额外信息）
+            if (tokenBlacklist.isRevoked(token)) {
+                log.debug("令牌已登出吊销，拒绝请求");
+                request.setAttribute(ATTR_AUTH_ERROR, ResultCode.UNAUTHORIZED);
+                filterChain.doFilter(request, response);
+                return;
+            }
             Long userId = jwtUtil.extractUserId(claims);
             String username = jwtUtil.extractUsername(claims);
             if (userId != null && username != null

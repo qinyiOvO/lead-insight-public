@@ -15,10 +15,22 @@ public interface LeadAccessService {
     Lead getExisting(Long leadId);
 
     /**
-     * 取「当前用户可操作」的线索（AC-21 越权防护）。
-     * 规则：owner_id 为空，或 owner_id 等于当前用户，才允许操作；否则抛 40300。
+     * 取「当前用户可操作」的线索（AC-21 越权防护 + PRD §3.3 权限矩阵，DEF-01/02/03 收紧）。
+     * 规则：线索存在且未删除，且满足以下其一才允许操作，否则抛 40300：
+     * <ul>
+     *   <li>未认领（owner_id IS NULL）：须为创建者本人（created_by = userId）——他人创建且未认领的线索不可编辑/删除/重抽；</li>
+     *   <li>已认领（owner_id 非空）：须为负责人本人（owner_id = userId）——他人已认领的线索一律不可操作。</li>
+     * </ul>
+     * 注意：本口径不覆盖「写跟进必须已认领」——那由 {@link #getClaimed} 负责。
      */
     Lead getOperable(Long leadId, Long userId);
+
+    /**
+     * 取「当前用户已认领」的线索（PRD §3.3「记录跟进过程 / 推进线索状态：仅已认领线索」，DEF-01）。
+     * 规则：线索存在且未删除，且 owner_id = userId，否则抛 40300：
+     * 未认领抛「请先认领」、他人已认领抛「已由他人认领」。
+     */
+    Lead getClaimed(Long leadId, Long userId);
 
     /**
      * 取「当前用户可见」的线索（读侧横向越权防护，对齐 PRD §3.3 权限矩阵）。

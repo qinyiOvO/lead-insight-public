@@ -29,9 +29,10 @@ import java.util.List;
  * 整批任务串行占用 1 个 import-task- 线程，批内逐条：条目置 RUNNING → 调
  * LeadService.createFromBatch（复用单条创建全管线，抽取同步）→ 归桶 → 刷任务计数。</p>
  *
- * <p>归桶口径（openapi 1.3.1 + K-1 裁定）：DUPLICATE=指纹命中（catch 40901）；
+ * <p>归桶口径（openapi 1.3.3 + DEF-04 四桶）：DUPLICATE=指纹命中（catch 40901）；
  * SUCCESS=线索建成且抽取 SUCCESS；DEGRADED=线索建成但抽取 FAILED/DEGRADED（照常产线索，
- * leadId 有值）；FAILED=创建异常（去重/落库之外的意外失败）。fail 桶 = FAILED + DEGRADED + 创建异常。</p>
+ * leadId 有值）→ 计入 manual_count（转人工，不再计入 fail_count）；FAILED=创建异常（未产线索）
+ * 与兜底异常 → 计入 fail_count。四桶之和 = total_count。</p>
  */
 @Slf4j
 @Component("importTaskProcessor")
@@ -89,10 +90,11 @@ public class ImportTaskExecutor {
                 patch.setItemStatus(ImportTaskItemStatus.SUCCESS.name());
                 bumpCounters(taskId, "success_count");
             } else {
-                // 线索已建成但抽取 FAILED/DEGRADED：照常产线索，条目记 DEGRADED（leadId 有值）
+                // 线索已建成但抽取 FAILED/DEGRADED：照常产线索，条目记 DEGRADED（leadId 有值）。
+                // DEF-04：转人工单列 manual_count，不再计入 fail_count——转人工不是失败
                 patch.setItemStatus(ImportTaskItemStatus.DEGRADED.name());
                 patch.setReason(outcome.extractMessage());
-                bumpCounters(taskId, "fail_count");
+                bumpCounters(taskId, "manual_count");
             }
         } catch (BizException e) {
             if (e.getResultCode() == ResultCode.DUPLICATE_CONTENT) {
@@ -141,22 +143,23 @@ public class ImportTaskExecutor {
                 .eq(ImportTaskItem::getSeq, patch.getSeq()));
     }
 
-    /** 终态判定（K-1）：fail=0 → SUCCESS；success=0 且 dup=0 → FAILED；否则 PARTIAL */
+    /** 终态判定（DEF-04 四桶口径）：manual>0 → PARTIAL；fail=0 且 manual=0 → SUCCESS；success=0 且 dup=0 且 manual=0 → FAILED；其余 PARTIAL */
     private void finalizeTask(Long taskId) {
         ImportTask task = taskMapper.selectById(taskId);
         if (task == null) {
             return;
         }
         ImportTaskStatus finalStatus = ImportTaskRules.finalStatus(
-                nvl(task.getSuccessCount()), nvl(task.getDuplicateCount()), nvl(task.getFailCount()));
+                nvl(task.getSuccessCount()), nvl(task.getDuplicateCount()),
+                nvl(task.getManualCount()), nvl(task.getFailCount()));
         taskMapper.update(null, Wrappers.<ImportTask>lambdaUpdate()
                 .set(ImportTask::getStatus, finalStatus.name())
                 .set(ImportTask::getFinishedAt, LocalDateTime.now())
                 .eq(ImportTask::getId, taskId)
                 .eq(ImportTask::getStatus, ImportTaskStatus.RUNNING.name()));
-        log.info("批量导入任务完成: taskId={} status={} total={} processed={} success={} duplicate={} fail={}",
+        log.info("批量导入任务完成: taskId={} status={} total={} processed={} success={} duplicate={} manual={} fail={}",
                 taskId, finalStatus, task.getTotalCount(), task.getProcessedCount(),
-                task.getSuccessCount(), task.getDuplicateCount(), task.getFailCount());
+                task.getSuccessCount(), task.getDuplicateCount(), task.getManualCount(), task.getFailCount());
     }
 
     private void markFailed(Long taskId, String message) {

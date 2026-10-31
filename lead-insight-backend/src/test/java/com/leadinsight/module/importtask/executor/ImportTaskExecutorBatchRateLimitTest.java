@@ -3,6 +3,7 @@ package com.leadinsight.module.importtask.executor;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.AbstractWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.leadinsight.module.importtask.entity.ImportTask;
 import com.leadinsight.module.importtask.entity.ImportTaskItem;
@@ -21,6 +22,7 @@ import org.mockito.ArgumentCaptor;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -39,7 +41,8 @@ import static org.mockito.Mockito.when;
  * 其用例在 LeadExtractPipelineTest——批量复用同一条管线，本类只验批量层语义）。
  * stub LeadService.createFromBatch 返回该折算终点，验证：
  * ①限流条 item=DEGRADED + reason 可读 ②后续条目照常处理（批次不中断）
- * ③任务终态按 K-1（全降级→FAILED / 混合→PARTIAL）。</p>
+ * ③任务计数落 manual_count 桶（DEF-04：转人工单列，不再计入 fail_count）
+ * ④任务终态按 DEF-04 四桶口径（全降级→PARTIAL / 混合→PARTIAL / 全成功→SUCCESS）。</p>
  */
 class ImportTaskExecutorBatchRateLimitTest {
 
@@ -65,25 +68,26 @@ class ImportTaskExecutorBatchRateLimitTest {
         executor = new ImportTaskExecutor(taskMapper, itemMapper, leadService);
     }
 
-    private ImportTask taskWithCounts(int success, int duplicate, int fail) {
+    private ImportTask taskWithCounts(int success, int duplicate, int manual, int fail) {
         ImportTask task = new ImportTask();
         task.setId(7L);
         task.setTotalCount(2);
         task.setProcessedCount(2);
         task.setSuccessCount(success);
         task.setDuplicateCount(duplicate);
+        task.setManualCount(manual);
         task.setFailCount(fail);
         task.setStatus("RUNNING");
         return task;
     }
 
     @Test
-    @DisplayName("批量限流：条1限流DEGRADED、条2照常处理，全降级终态FAILED")
-    void batchRateLimit_allLimited_degradedTaskFailed() {
+    @DisplayName("批量限流：条1限流DEGRADED、条2照常处理，全降级终态PARTIAL（DEF-04 转人工单列）")
+    void batchRateLimit_allLimited_degradedTaskPartial() {
         when(leadService.createFromBatch(any(), any(), any(), any())).thenReturn(
                 new LeadCreationOutcome(101L, null, ExtractStatus.DEGRADED, RATE_LIMIT_REASON),
                 new LeadCreationOutcome(102L, null, ExtractStatus.DEGRADED, RATE_LIMIT_REASON));
-        when(taskMapper.selectById(7L)).thenReturn(taskWithCounts(0, 0, 2));
+        when(taskMapper.selectById(7L)).thenReturn(taskWithCounts(0, 0, 2, 0));
 
         executor.process(7L, List.of("邮件一", "邮件二"), 9L, null);
 
@@ -96,11 +100,19 @@ class ImportTaskExecutorBatchRateLimitTest {
         String allItemParams = joinParamValues(itemCaptor.getAllValues());
         assertTrue(allItemParams.contains("DEGRADED"), "限流条目必须落 DEGRADED");
         assertTrue(allItemParams.contains(RATE_LIMIT_REASON), "reason 必须携带可读限流文案");
-        // ③ 全降级 → 任务终态 FAILED（K-1）
+        // ③ DEF-04：限流降级计数落 manual_count 桶（转人工单列，不再计入 fail_count）；
+        //    全降级时线索其实均已入库 → 任务终态 PARTIAL，不得判 FAILED（K-1 Amendment）
         ArgumentCaptor<Wrapper<ImportTask>> taskCaptor = ArgumentCaptor.forClass(Wrapper.class);
         verify(taskMapper, atLeast(2)).update(any(), taskCaptor.capture());
-        assertTrue(joinParamValues(taskCaptor.getAllValues()).contains("FAILED"),
-                "全部条目降级时任务终态必须为 FAILED");
+        String taskSqlSet = joinSqlSet(taskCaptor.getAllValues());
+        assertTrue(taskSqlSet.contains("manual_count = manual_count + 1"),
+                "降级条目必须计入 manual_count 桶（DEF-04：转人工单列）");
+        assertFalse(taskSqlSet.contains("fail_count = fail_count + 1"),
+                "降级条目不得再计入 fail_count（DEF-04：转人工不是失败）");
+        String taskParams = joinParamValues(taskCaptor.getAllValues());
+        assertTrue(taskParams.contains("PARTIAL"), "全部条目转人工时任务终态必须为 PARTIAL");
+        assertFalse(taskParams.contains("FAILED"),
+                "全部条目转人工（线索均已入库）不得判 FAILED");
     }
 
     @Test
@@ -109,7 +121,7 @@ class ImportTaskExecutorBatchRateLimitTest {
         when(leadService.createFromBatch(any(), any(), any(), any())).thenReturn(
                 new LeadCreationOutcome(201L, null, ExtractStatus.DEGRADED, RATE_LIMIT_REASON),
                 new LeadCreationOutcome(202L, "张三", ExtractStatus.SUCCESS, null));
-        when(taskMapper.selectById(7L)).thenReturn(taskWithCounts(1, 0, 1));
+        when(taskMapper.selectById(7L)).thenReturn(taskWithCounts(1, 0, 1, 0));
 
         executor.process(7L, List.of("邮件一", "邮件二"), 9L, null);
 
@@ -135,7 +147,7 @@ class ImportTaskExecutorBatchRateLimitTest {
         when(leadService.createFromBatch(any(), any(), any(), any())).thenReturn(
                 new LeadCreationOutcome(301L, "李四", ExtractStatus.SUCCESS, null),
                 new LeadCreationOutcome(302L, "王五", ExtractStatus.SUCCESS, null));
-        when(taskMapper.selectById(7L)).thenReturn(taskWithCounts(2, 0, 0));
+        when(taskMapper.selectById(7L)).thenReturn(taskWithCounts(2, 0, 0, 0));
 
         executor.process(7L, List.of("邮件一", "邮件二"), 9L, null);
 
@@ -166,6 +178,16 @@ class ImportTaskExecutorBatchRateLimitTest {
                 .map(Map::values)
                 .flatMap(Collection::stream)
                 .map(String::valueOf)
+                .reduce((a, b) -> a + "|" + b)
+                .orElse("");
+    }
+
+    /** 取 wrapper 的 SET 片段（setSql 原文，如 manual_count = manual_count + 1；Update 语义） */
+    private String joinSqlSet(Collection<? extends Wrapper<?>> wrappers) {
+        return wrappers.stream()
+                .map(w -> (LambdaUpdateWrapper<?>) w)
+                .map(LambdaUpdateWrapper::getSqlSet)
+                .filter(Objects::nonNull)
                 .reduce((a, b) -> a + "|" + b)
                 .orElse("");
     }

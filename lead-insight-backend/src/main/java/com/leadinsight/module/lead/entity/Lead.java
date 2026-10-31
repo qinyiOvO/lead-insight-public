@@ -82,6 +82,9 @@ public class Lead {
 
     private Long ownerId;
 
+    /** 创建人（销售专员）ID；未认领线索仅创建本人可操作（DEF-01/02/03 访问守卫，PRD §3.3「自己创建或已认领」） */
+    private Long createdBy;
+
     private LocalDateTime claimedAt;
 
     private Long importTaskId;

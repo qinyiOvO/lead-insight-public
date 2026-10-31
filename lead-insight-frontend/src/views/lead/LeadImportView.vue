@@ -378,7 +378,7 @@ const statusAlert = computed(() => {
   margin-top: var(--space-4);
 }
 
-/* DEGRADED 降级态：语义色 warning（--warning-text #B45309），非 danger */
+/* DEGRADED 降级态：语义色 warning（引用 --warning-text Token），非 danger */
 .import-degraded__title {
   font-size: var(--text-lg);
   font-weight: var(--fw-semibold);

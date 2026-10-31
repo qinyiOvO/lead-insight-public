@@ -66,6 +66,7 @@ public class ImportTaskServiceImpl implements ImportTaskService {
         task.setProcessedCount(0);
         task.setSuccessCount(0);
         task.setDuplicateCount(0);
+        task.setManualCount(0);
         task.setFailCount(0);
         task.setCreatedAt(LocalDateTime.now());
         taskMapper.insert(task);

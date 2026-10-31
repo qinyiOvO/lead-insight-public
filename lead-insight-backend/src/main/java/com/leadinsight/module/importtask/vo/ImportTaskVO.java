@@ -22,6 +22,9 @@ public class ImportTaskVO {
     private Integer processedCount;
     private Integer successCount;
     private Integer duplicateCount;
+    /** DEF-04：转人工条数（DEGRADED：线索已入库但抽取 FAILED/降级），从 failCount 拆出单列 */
+    private Integer manualCount;
+    /** 处理失败条数（仅 FAILED 条目与创建异常，不含转人工） */
     private Integer failCount;
     private ImportTaskStatus status;
     private LocalDateTime startedAt;
@@ -38,6 +41,7 @@ public class ImportTaskVO {
         vo.setProcessedCount(task.getProcessedCount());
         vo.setSuccessCount(task.getSuccessCount());
         vo.setDuplicateCount(task.getDuplicateCount());
+        vo.setManualCount(task.getManualCount());
         vo.setFailCount(task.getFailCount());
         vo.setStatus(ImportTaskStatus.fromCode(task.getStatus()));
         vo.setStartedAt(task.getStartedAt());

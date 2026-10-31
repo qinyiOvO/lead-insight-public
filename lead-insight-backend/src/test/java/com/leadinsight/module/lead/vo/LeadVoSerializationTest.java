@@ -1,13 +1,16 @@
 package com.leadinsight.module.lead.vo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.leadinsight.module.lead.entity.Lead;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -44,5 +47,24 @@ class LeadVoSerializationTest {
 
         assertTrue(json.contains("\"ownerName\":null"), json);
         assertFalse(json.contains("\"ownerName\":\"\""), json);
+    }
+
+    @Test
+    @DisplayName("updatedAt 透传且序列化为 ISO 字符串（DEF-09：AC-09 可观测出口）")
+    void updatedAtMappedAndSerialized() throws Exception {
+        Lead lead = new Lead();
+        LocalDateTime updatedAt = LocalDateTime.of(2026, 10, 31, 9, 30, 15);
+        lead.setUpdatedAt(updatedAt);
+
+        assertEquals(updatedAt, LeadVO.from(lead).getUpdatedAt(), "LeadVO.from 必须透传 updatedAt");
+        assertEquals(updatedAt, LeadDetailVO.from(lead).getUpdatedAt(),
+                "LeadDetailVO.from 必须透传 updatedAt（detail 继承 LeadVO 字段）");
+
+        // 应用态 Jackson（Spring Boot 默认关闭 WRITE_DATES_AS_TIMESTAMPS）下应为 ISO 字符串，
+        // 与 openapi v1.3.3 LeadVO.updatedAt（format=date-time）对齐
+        ObjectMapper appLikeMapper = new ObjectMapper().registerModule(new JavaTimeModule())
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        String json = appLikeMapper.writeValueAsString(LeadVO.from(lead));
+        assertTrue(json.contains("\"updatedAt\":\"2026-10-31T09:30:15\""), json);
     }
 }

@@ -10,6 +10,8 @@ import com.leadinsight.module.user.entity.User;
 import com.leadinsight.module.user.service.UserService;
 import com.leadinsight.module.user.vo.UserVO;
 import com.leadinsight.security.JwtUtil;
+import com.leadinsight.security.TokenBlacklist;
+import io.jsonwebtoken.JwtException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,6 +19,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Locale;
 
 /**
@@ -38,6 +41,7 @@ public class AuthServiceImpl implements AuthService {
     private final UserService userService;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final TokenBlacklist tokenBlacklist;
     private final CacheService cacheService;
 
     @Value("${security.login.max-failures:5}")
@@ -81,8 +85,20 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public void logout(Long userId) {
-        // 无状态 JWT 由前端清除令牌即可；服务端不保存会话，故无需副作用。
+    public void logout(Long userId, String token) {
+        // DEF-07：服务端吊销——把令牌按剩余有效期列入进程内黑名单（最小方案，不引 Redis）。
+        // 不破坏现有前端登录态：登出仍返回 200，前端清 token 跳转逻辑不变；未登出的令牌不受影响。
+        // 限制：黑名单为进程内状态，与 JwtUtil 在 jwt.secret 未配置时的进程内随机密钥生命周期一致
+        // （重启后旧令牌本就全部失效），多实例部署需共享存储，属产品化事项，本轮不做。
+        if (token != null && !token.isBlank()) {
+            try {
+                Instant expiresAt = jwtUtil.parse(token).getExpiration().toInstant();
+                tokenBlacklist.revoke(token, expiresAt);
+            } catch (JwtException | IllegalArgumentException e) {
+                // 令牌已过期或非法：本就不可用，无需吊销（登出仍返回 200，与既有行为一致）
+                log.debug("登出时令牌已失效，跳过黑名单登记: userId={} err={}", userId, e.getMessage());
+            }
+        }
         log.info("用户登出: userId={}", userId);
     }
 

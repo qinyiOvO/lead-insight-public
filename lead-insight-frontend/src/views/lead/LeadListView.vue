@@ -296,6 +296,8 @@ async function submitForm(): Promise<void> {
       >
         <template #actions>
           <el-button type="primary" @click="clearFilters">清空筛选</el-button>
+          <!-- AC-13：筛选无结果同样给出导入入口（与「全库空态」同一套 EmptyState 用法，仅专员可见） -->
+          <el-button v-if="canManage" @click="router.push('/leads/import')">粘贴导入</el-button>
         </template>
       </EmptyState>
 

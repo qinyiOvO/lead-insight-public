@@ -75,6 +75,8 @@ public class LeadCreationProcessor {
         Lead lead = LeadFactory.fromCreateRequest(request, fingerprint, manualMode);
         lead.setImportSource(importSource);
         lead.setImportTaskId(importTaskId);
+        // DEF-01/02/03：记录创建人，未认领线索的「仅创建本人可操作」校验依赖此字段（存量行由迁移脚本回填）
+        lead.setCreatedBy(userId);
 
         try {
             leadMapper.insert(lead);

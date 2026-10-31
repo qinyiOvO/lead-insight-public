@@ -435,7 +435,8 @@ const taskStore: MockTask[] = [
     return {
       vo: {
         id: 87, taskNo: 'T-0087', fileName: null, importSource: 'BATCH',
-        totalCount: 12, processedCount: 12, successCount: 10, duplicateCount: 1, failCount: 1,
+        // DEF-04 三桶+失败：成功9+去重1+转人工1+失败1=12（DEGRADED 计入 manual，不计 fail）
+        totalCount: 12, processedCount: 12, successCount: 9, duplicateCount: 1, manualCount: 1, failCount: 1,
         status: 'SUCCESS' as const, startedAt: iso(66), finishedAt: iso(64), createdAt: iso(66),
       },
       createdAtMs: now - 66 * 60_000,
@@ -448,7 +449,8 @@ const taskStore: MockTask[] = [
     return {
       vo: {
         id: 86, taskNo: 'T-0086', fileName: '客户邮件20260930.txt', importSource: 'FILE',
-        totalCount: 30, processedCount: 30, successCount: 27, duplicateCount: 2, failCount: 1,
+        // DEF-04：成功26+去重2+转人工1+失败1=30
+        totalCount: 30, processedCount: 30, successCount: 26, duplicateCount: 2, manualCount: 1, failCount: 1,
         status: 'PARTIAL' as const, startedAt: iso(300), finishedAt: iso(295), createdAt: iso(300),
       },
       createdAtMs: now - 300 * 60_000,
@@ -460,13 +462,13 @@ const taskStore: MockTask[] = [
 let nextTaskId = 88;
 let nextTaskNo = 88;
 
-/** 进度按挂钟推进：1s 起步 RUNNING，每秒处理 3 条，处理完按 failCount 判 SUCCESS/PARTIAL */
+/** 进度按挂钟推进：1s 起步 RUNNING，每秒处理 3 条，处理完按 fail/manual 判 SUCCESS/PARTIAL（DEF-04 四桶口径） */
 function deriveStatus(task: MockTask): ImportTaskVO['status'] {
   const elapsedSec = (Date.now() - task.createdAtMs) / 1000;
   if (elapsedSec < 1) return 'PENDING';
   const processed = Math.min(task.vo.totalCount, Math.floor(elapsedSec * 3));
   if (processed < task.vo.totalCount) return 'RUNNING';
-  return task.vo.failCount > 0 ? 'PARTIAL' : 'SUCCESS';
+  return task.vo.failCount > 0 || task.vo.manualCount > 0 ? 'PARTIAL' : 'SUCCESS';
 }
 
 function withProgress(task: MockTask): ImportTaskVO {
@@ -475,13 +477,15 @@ function withProgress(task: MockTask): ImportTaskVO {
   const processed = done ? task.vo.totalCount : Math.min(task.vo.totalCount, Math.floor(((Date.now() - task.createdAtMs) / 1000) * 3));
   const success = Math.max(0, processed - Math.ceil(processed * 0.1));
   const dup = Math.min(task.vo.duplicateCount, processed - success);
+  const manual = Math.min(task.vo.manualCount, processed - success - dup);
   return {
     ...task.vo,
     status,
     processedCount: processed,
     successCount: done ? task.vo.successCount : success,
     duplicateCount: done ? task.vo.duplicateCount : dup,
-    failCount: done ? task.vo.failCount : Math.max(0, processed - success - dup),
+    manualCount: done ? task.vo.manualCount : manual,
+    failCount: done ? task.vo.failCount : Math.max(0, processed - success - dup - manual),
   };
 }
 
@@ -489,8 +493,9 @@ function buildItems(task: MockTask, vo: ImportTaskVO): ImportTaskItemVO[] {
   return task.texts.map((_text, i) => {
     const seq = i + 1;
     if (seq <= vo.processedCount) {
-      // DEGRADED 样本（模拟无 key 批量）：倒数第二条降级建档，leadId 有值（openapi 1.3.1）
-      if (vo.failCount > 0 && seq === vo.totalCount - 1) return { seq, itemStatus: 'DEGRADED' as const, leadId: 9000 + seq, customerName: 'Mock 客户 ' + seq, reason: 'AI 识别降级，已按原始文本建档，请人工补全' };
+      // DEGRADED 样本（模拟无 key 批量）：倒数第二条降级建档，leadId 有值（openapi 1.3.1）；
+      // DEF-04：DEGRADED 计入 manualCount（转人工），FAILED 才计入 failCount
+      if (vo.manualCount > 0 && seq === vo.totalCount - 1) return { seq, itemStatus: 'DEGRADED' as const, leadId: 9000 + seq, customerName: 'Mock 客户 ' + seq, reason: 'AI 识别降级，已按原始文本建档，请人工补全' };
       if (seq % 9 === 0) return { seq, itemStatus: 'DUPLICATE' as const, leadId: null, customerName: null, reason: '指纹匹配，已存在同名线索' };
       if (vo.failCount > 0 && seq === vo.totalCount) return { seq, itemStatus: 'FAILED' as const, leadId: null, customerName: null, reason: '文本过短，未抽取到有效字段' };
       return { seq, itemStatus: 'SUCCESS' as const, leadId: 9000 + seq, customerName: 'Mock 客户 ' + seq, reason: null };
@@ -530,15 +535,17 @@ function mockR3(
           taskNo: 'T-' + String(nextTaskNo).padStart(4, '0'),
           fileName: body.importSource === 'FILE' ? 'mock-import.txt' : null,
           importSource: String(body.importSource ?? 'BATCH'),
-          totalCount: textList.length, processedCount: 0, successCount: 0, duplicateCount: 0, failCount: 0,
+          totalCount: textList.length, processedCount: 0, successCount: 0, duplicateCount: 0, manualCount: 0, failCount: 0,
           status: 'PENDING', startedAt: new Date(now).toISOString(), finishedAt: null,
           createdAt: new Date(now).toISOString(),
         },
         createdAtMs: now,
         texts: textList,
       };
-      task.vo.failCount = 1; // 模拟末条超短文本失败 → 终态 PARTIAL
-      task.vo.successCount = textList.length - task.vo.failCount; // 终态汇总自洽（明细和=总数）
+      // DEF-04 四桶口径：末条超短文本计失败（failCount），倒数第二条降级计转人工（manualCount）
+      task.vo.failCount = 1;
+      task.vo.manualCount = textList.length > 1 ? 1 : 0;
+      task.vo.successCount = Math.max(0, textList.length - task.vo.failCount - task.vo.manualCount); // 终态汇总自洽（明细和=总数）
       nextTaskId += 1;
       nextTaskNo += 1;
       taskStore.unshift(task);
@@ -556,7 +563,7 @@ function mockR3(
     if (action === 'progress' && method === 'get') {
       const progress: ImportTaskProgressVO = {
         taskId: vo.id, status: vo.status, total: vo.totalCount, processed: vo.processedCount,
-        success: vo.successCount, duplicate: vo.duplicateCount, fail: vo.failCount,
+        success: vo.successCount, duplicate: vo.duplicateCount, manual: vo.manualCount, fail: vo.failCount,
         percent: Math.round((vo.processedCount / Math.max(1, vo.totalCount)) * 100),
       };
       return progress;

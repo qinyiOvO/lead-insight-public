@@ -36,8 +36,32 @@ public class LeadAccessServiceImpl implements LeadAccessService {
     public Lead getOperable(Long leadId, Long userId) {
         Lead lead = getExisting(leadId);
         Long ownerId = lead.getOwnerId();
-        if (ownerId != null && !Objects.equals(ownerId, userId)) {
-            throw new BizException(ResultCode.FORBIDDEN, "该线索已由他人认领，无法操作");
+        if (ownerId != null) {
+            // 已认领：仅负责人本人可操作（他人已认领一律拒绝）
+            if (!Objects.equals(ownerId, userId)) {
+                throw new BizException(ResultCode.FORBIDDEN, "该线索已由他人认领，无法操作");
+            }
+            return lead;
+        }
+        // 未认领：仅创建者本人可操作（DEF-01/02/03：他人创建且未认领的线索不可编辑/删除）
+        Long createdBy = lead.getCreatedBy();
+        if (createdBy == null || !Objects.equals(createdBy, userId)) {
+            throw new BizException(ResultCode.FORBIDDEN,
+                    "该线索由他人创建且尚未认领，无法操作（可认领后跟进，或联系创建人处理）");
+        }
+        return lead;
+    }
+
+    @Override
+    public Lead getClaimed(Long leadId, Long userId) {
+        Lead lead = getExisting(leadId);
+        Long ownerId = lead.getOwnerId();
+        if (ownerId == null) {
+            // DEF-01：未认领线索不可写跟进（PRD §3.3「记录跟进过程：仅已认领线索」）
+            throw new BizException(ResultCode.FORBIDDEN, "该线索尚未认领，请先认领后再记录跟进");
+        }
+        if (!Objects.equals(ownerId, userId)) {
+            throw new BizException(ResultCode.FORBIDDEN, "该线索已由他人认领，无法记录跟进");
         }
         return lead;
     }

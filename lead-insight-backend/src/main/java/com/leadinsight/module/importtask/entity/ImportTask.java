@@ -38,7 +38,10 @@ public class ImportTask {
     /** 指纹去重命中条数 */
     private Integer duplicateCount;
 
-    /** 处理失败条数（含 FAILED/DEGRADED 转人工/降级与创建异常，K-1 fail 桶口径） */
+    /** 转人工条数（DEGRADED：线索已入库但抽取 FAILED/降级，需人工处理；DEF-04 从 failCount 拆出） */
+    private Integer manualCount;
+
+    /** 处理失败条数（仅 FAILED 条目即未产线索的创建异常；不含转人工，DEF-04 口径收紧） */
     private Integer failCount;
 
     /** PENDING / RUNNING / SUCCESS / PARTIAL / FAILED */

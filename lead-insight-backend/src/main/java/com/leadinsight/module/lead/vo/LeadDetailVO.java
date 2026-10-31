@@ -47,6 +47,8 @@ public class LeadDetailVO extends LeadVO {
         vo.setOwnerName(base.getOwnerName());
         vo.setImportSource(base.getImportSource());
         vo.setCreatedAt(base.getCreatedAt());
+        // DEF-09：updatedAt 继承自 LeadVO（detail 不重复声明字段，仅赋值）
+        vo.setUpdatedAt(base.getUpdatedAt());
 
         vo.setOriginalText(lead.getOriginalText());
         vo.setContactInfo(lead.getContactInfo());

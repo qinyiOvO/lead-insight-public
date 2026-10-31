@@ -31,6 +31,9 @@ export interface ImportTaskVO {
   processedCount: number;
   successCount: number;
   duplicateCount: number;
+  /** 转人工条数（DEF-04，openapi 1.3.3 追加）：DEGRADED 线索已入库但抽取降级，需人工处理 */
+  manualCount: number;
+  /** 处理失败条数（DEF-04 口径收紧）：仅 FAILED 条目（未产线索）与创建异常，不含转人工 */
   failCount: number;
   status: ImportTaskStatus;
   startedAt: string | null;
@@ -45,6 +48,9 @@ export interface ImportTaskProgressVO {
   processed: number;
   success: number;
   duplicate: number;
+  /** 转人工条数（DEF-04，openapi 1.3.3 追加）：DEGRADED 线索已入库但抽取降级，需人工处理 */
+  manual: number;
+  /** 处理失败条数（DEF-04 口径收紧）：仅 FAILED 条目与创建异常，不含转人工 */
   fail: number;
   /** 0-100 整数百分比 */
   percent: number;

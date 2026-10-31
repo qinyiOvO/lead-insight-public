@@ -3,6 +3,7 @@ package com.leadinsight.module.importtask.service.impl;
 import com.leadinsight.common.exception.BizException;
 import com.leadinsight.common.result.ResultCode;
 import com.leadinsight.module.importtask.enums.ImportTaskStatus;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -13,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 批量导入纯规则单测：空白段过滤（批复②）、数量校验、K-1 终态判定（批复③④）。
+ * 批量导入纯规则单测：空白段过滤（批复②）、数量校验、DEF-04 四桶终态判定（success/duplicate/manual/fail）。
  */
 class ImportTaskRulesTest {
 
@@ -89,25 +90,36 @@ class ImportTaskRulesTest {
         ImportTaskRules.validateSegmentCount(1);
     }
 
-    // ---------------------- K-1 终态判定 ----------------------
+    // ---------------------- DEF-04 四桶终态判定（success/duplicate/manual/fail） ----------------------
 
     @Test
-    void finalStatus_zeroFailIsSuccess_evenAllDuplicate() {
-        // 边界口径：全去重命中 → fail=0 → SUCCESS（K-1 字面：FAILED 仅限全部转人工/降级/异常）
-        assertEquals(ImportTaskStatus.SUCCESS, ImportTaskRules.finalStatus(0, 5, 0));
-        assertEquals(ImportTaskStatus.SUCCESS, ImportTaskRules.finalStatus(3, 0, 0));
+    @DisplayName("DEF-04：无转人工且无失败 → SUCCESS（含全部去重命中的边界）")
+    void finalStatus_zeroManualZeroFailIsSuccess() {
+        // 去重不算失败；全去重命中同样是 SUCCESS
+        assertEquals(ImportTaskStatus.SUCCESS, ImportTaskRules.finalStatus(0, 5, 0, 0));
+        assertEquals(ImportTaskStatus.SUCCESS, ImportTaskRules.finalStatus(3, 0, 0, 0));
+        assertEquals(ImportTaskStatus.SUCCESS, ImportTaskRules.finalStatus(2, 1, 0, 0));
     }
 
     @Test
-    void finalStatus_allManualWorkloadIsFailed() {
-        // 全部条目转人工/降级/创建异常，无一自动成功
-        assertEquals(ImportTaskStatus.FAILED, ImportTaskRules.finalStatus(0, 0, 4));
+    @DisplayName("DEF-04：有转人工 → PARTIAL（全 DEGRADED 也不再是 FAILED——线索其实已入库）")
+    void finalStatus_anyManualIsPartial() {
+        // 证红锚点：旧口径 finalStatus(0,0,3)（三桶）= FAILED，把 3 条已入库的转人工线索报成整体失败
+        assertEquals(ImportTaskStatus.PARTIAL, ImportTaskRules.finalStatus(0, 0, 3, 0));
+        assertEquals(ImportTaskStatus.PARTIAL, ImportTaskRules.finalStatus(1, 0, 2, 0));
+        assertEquals(ImportTaskStatus.PARTIAL, ImportTaskRules.finalStatus(0, 3, 2, 0));
     }
 
     @Test
-    void finalStatus_mixedIsPartial() {
-        assertEquals(ImportTaskStatus.PARTIAL, ImportTaskRules.finalStatus(2, 1, 1));
-        assertEquals(ImportTaskStatus.PARTIAL, ImportTaskRules.finalStatus(0, 3, 1));
-        assertEquals(ImportTaskStatus.PARTIAL, ImportTaskRules.finalStatus(1, 0, 2));
+    @DisplayName("DEF-04：全部创建失败（未产线索）→ FAILED")
+    void finalStatus_allFailedNoLeadIsFailed() {
+        assertEquals(ImportTaskStatus.FAILED, ImportTaskRules.finalStatus(0, 0, 0, 4));
+    }
+
+    @Test
+    @DisplayName("DEF-04：混合（成功/去重 + 失败）→ PARTIAL")
+    void finalStatus_mixedWithFailIsPartial() {
+        assertEquals(ImportTaskStatus.PARTIAL, ImportTaskRules.finalStatus(2, 1, 0, 1));
+        assertEquals(ImportTaskStatus.PARTIAL, ImportTaskRules.finalStatus(1, 0, 0, 2));
     }
 }

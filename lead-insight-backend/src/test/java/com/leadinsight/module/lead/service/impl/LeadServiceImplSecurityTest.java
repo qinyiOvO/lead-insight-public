@@ -190,6 +190,33 @@ class LeadServiceImplSecurityTest {
     }
 
     @Test
+    @DisplayName("DEF-02：已有跟进记录的线索删除被拒（40300 且不执行软删）")
+    void delete_withFollowUpsRejected() {
+        when(leadAccessService.getOperable(6L, 1L)).thenReturn(lead(6L, 1L));
+        when(followUpService.hasFollowUps(6L)).thenReturn(true);
+
+        BizException ex = assertThrows(BizException.class, () -> service.delete(6L, 1L));
+        assertEquals(ResultCode.FORBIDDEN, ex.getResultCode());
+        assertEquals(403, ex.getResultCode().getHttpStatus());
+        assertTrue(ex.getMessage().contains("跟进"), "message 须说清原因，实际=" + ex.getMessage());
+        // 被拒即不触库：软删一次都不许发生
+        verify(leadMapper, never()).softDeleteByIdAndOwner(any(), any());
+    }
+
+    @Test
+    @DisplayName("DEF-02：无任何跟进记录的线索允许删除（含未认领的自建线索）")
+    void delete_withoutFollowUpsAllowed() {
+        when(leadAccessService.getOperable(6L, 1L)).thenReturn(lead(6L, null));
+        when(followUpService.hasFollowUps(6L)).thenReturn(false);
+        when(leadMapper.softDeleteByIdAndOwner(6L, 1L)).thenReturn(1);
+
+        service.delete(6L, 1L);
+
+        verify(followUpService).hasFollowUps(6L);
+        verify(leadMapper).softDeleteByIdAndOwner(6L, 1L);
+    }
+
+    @Test
     @DisplayName("删除正常（影响行数=1）：带归属条件，不抛异常")
     void delete_success() {
         when(leadAccessService.getOperable(6L, 1L)).thenReturn(lead(6L, null));

@@ -2,8 +2,11 @@
 /**
  * /tasks/:id 批量导入任务进度（T3-04，UIUX §7.5.7 + §8.4）。
  * 2s 轮询 /import-tasks/{id}/progress，终态（SUCCESS/PARTIAL/FAILED）停；
- * 逐条结果 /items（openapi 1.3.1，含 PENDING/RUNNING 中间态，运行中条目不消失；
- * DEGRADED=线索已创建但 AI 识别降级转人工，语义 warning 而非失败红）。
+ * 逐条结果 /items（openapi 1.3.1，含 PENDING/RUNNING 中间态，运行中条目不消失）。
+ * 汇总口径（openapi 1.3.3，DEF-04）：成功 / 重复跳过 / 转人工 / 失败四列，
+ * 成功+去重+转人工+失败 = 总数（AC-27 三类汇总 + 失败单列）。其中转人工（progress.manual）
+ * 即 DEGRADED——线索已创建但 AI 识别降级转人工，语义 warning 而非失败红；
+ * 失败（progress.fail）仅计 FAILED 条目（未产线索）与创建异常，DEGRADED 不计入。
  * 契约注记：§8.4 的「限流等待」任务级状态在 ImportTaskProgressVO.status（五态）中
  * 无承载，等后端补充枚举再渲染，前端不造状态；条目级「降级」已由 1.3.1 DEGRADED 承载。
  */
@@ -98,6 +101,9 @@ function pillTone(status: ImportItemStatus): string {
           <span class="dot-sep">·</span> 成功 <span class="is-mono">{{ progress.success }}</span>
           <span class="dot-sep">·</span> 重复跳过 <span class="is-mono">{{ progress.duplicate }}</span>
           <span class="dot-sep">·</span>
+          <!-- DEF-04：转人工单列（manual）。DEGRADED 线索已入库仅抽取降级，语义 warning 非失败红 -->
+          <span :class="{ 'is-manual': progress.manual > 0 }">转人工 <span class="is-mono">{{ progress.manual }}</span></span>
+          <span class="dot-sep">·</span>
           <span :class="{ 'is-fail': progress.fail > 0 }">失败 <span class="is-mono">{{ progress.fail }}</span></span>
         </p>
         <p v-if="progress.status === 'PENDING'" class="progress-hint">任务已提交，等待处理</p>
@@ -158,6 +164,8 @@ function pillTone(status: ImportItemStatus): string {
 .panel + .panel { margin-top: var(--space-4); }
 .progress-title { margin: 0 0 var(--space-2); font-size: var(--text-base); font-weight: var(--fw-medium); color: var(--fg); }
 .progress-meta { margin-top: var(--space-2); font-size: var(--text-sm); color: var(--fg-2); }
+/* DEF-04：转人工 = warning 语义（--warning-text），失败 = danger，两者不可混色 */
+.progress-meta .is-manual { color: var(--warning-text); }
 .progress-meta .is-fail { color: var(--danger); }
 .progress-hint { margin: var(--space-2) 0 0; font-size: var(--text-sm); color: var(--fg-3); }
 .dot-sep { margin: 0 var(--space-1); color: var(--fg-3); }
