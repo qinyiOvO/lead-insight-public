@@ -236,7 +236,7 @@ async function submitForm(): Promise<void> {
   <div class="lead-list">
     <header class="page-head">
       <h1 class="page-head__title">线索管理</h1>
-      <p class="page-head__desc">全量线索的检索、录入与维护；系统按评分规则自动排好优先级。</p>
+      <p class="page-head__desc">全量线索的检索、录入与维护；默认最新录入在前，点列头可改按优先级排序。</p>
     </header>
 
     <div class="toolbar">
