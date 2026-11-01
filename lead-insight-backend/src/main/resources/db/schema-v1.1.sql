@@ -80,7 +80,7 @@ CREATE TABLE `import_task` (
     `updated_at`      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_import_task_no` (`task_no`),
-    KEY `idx_import_task_status` (`status`),
+    -- v1.3：原 idx_import_task_status 删除（status 仅作 WHERE id=? AND status=? 的附加条件，前导为主键）
     KEY `idx_import_task_created_by` (`created_by`),
     KEY `idx_import_task_created_at` (`created_at`),
     CONSTRAINT `fk_import_task_user`
@@ -126,12 +126,14 @@ CREATE TABLE `lead` (
     `deleted_at`         DATETIME        NULL                     COMMENT '逻辑删除时间(NULL=未删除)，MyBatis-Plus @TableLogic',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_lead_fingerprint` (`content_fingerprint`),
-    KEY `idx_lead_status_priority` (`status`, `priority_score` DESC, `id` DESC),
-    KEY `idx_lead_status_created` (`status`, `created_at`),
+    -- v1.3 索引优化（ADR-009）：列序与实现口径 ORDER BY priority_score DESC, created_at ASC, id ASC 逐键对齐；
+    -- 原 idx_lead_owner / idx_lead_intent_created 删除（由本组索引最左前缀承担）
+    KEY `idx_lead_owner_priority`  (`owner_id`, `deleted_at`, `priority_score` DESC, `created_at` ASC, `id` ASC),
+    KEY `idx_lead_status_priority` (`status`, `deleted_at`, `priority_score` DESC, `created_at` ASC, `id` ASC),
+    KEY `idx_lead_status_created`  (`status`, `deleted_at`, `created_at`, `id`),
     KEY `idx_lead_intent_category` (`intent_category`),
-    KEY `idx_lead_intent_created` (`intent_category`, `created_at`),
-    KEY `idx_lead_created_at` (`created_at`),
-    KEY `idx_lead_owner` (`owner_id`),
+    -- deleted_at 置于末位：置于首位会使优化器对 WHERE deleted_at IS NULL 产生 ref=const 假象，诱导大表上大量回表
+    KEY `idx_lead_created_at` (`created_at`, `id`, `deleted_at`),
     KEY `idx_lead_import_task` (`import_task_id`),
     KEY `idx_lead_extract_status` (`extract_status`),
     KEY `idx_lead_confidence` (`confidence_level`),
@@ -184,7 +186,7 @@ CREATE TABLE `lead_score_detail` (
     `created_at` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_score_lead_rule` (`lead_id`, `rule_code`),
-    KEY `idx_score_lead` (`lead_id`),
+    -- v1.3：原 idx_score_lead (lead_id) 删除，由 uk_score_lead_rule 最左列承担
     CONSTRAINT `fk_score_lead`
         FOREIGN KEY (`lead_id`) REFERENCES `lead` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '线索评分明细表';
@@ -205,6 +207,8 @@ CREATE TABLE `lead_follow_up` (
     `created_at`  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (`id`),
     KEY `idx_follow_lead_created` (`lead_id`, `created_at`),
+    -- v1.3：成交趋势覆盖索引（等值 to_status → 分组列 lead_id → MIN(created_at)）
+    KEY `idx_follow_won` (`to_status`, `lead_id`, `created_at`),
     KEY `idx_follow_user` (`user_id`),
     CONSTRAINT `fk_follow_lead`
         FOREIGN KEY (`lead_id`) REFERENCES `lead` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
@@ -271,8 +275,8 @@ CREATE TABLE `llm_quota_ban` (
     `updated_at`    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`ban_key`),
     KEY `idx_lqb_banned_until` (`banned_until`),
-    KEY `idx_lqb_subject_type` (`subject_type`),
-    KEY `idx_lqb_trigger_ip` (`trigger_ip`)
+    -- v1.3：原 idx_lqb_subject_type / idx_lqb_trigger_ip 合并为本三列索引，与封禁计数的等值+范围逐列对齐
+    KEY `idx_lqb_type_ip_until` (`subject_type`, `trigger_ip`, `banned_until`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '模型额度封禁表（账户/IP）';
 
 

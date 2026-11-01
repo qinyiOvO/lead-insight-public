@@ -4,7 +4,6 @@ import com.leadinsight.cache.CacheService;
 import com.leadinsight.common.exception.BizException;
 import com.leadinsight.common.result.ResultCode;
 import com.leadinsight.common.util.FingerprintUtil;
-import com.leadinsight.module.lead.entity.Lead;
 import com.leadinsight.module.lead.mapper.LeadMapper;
 import com.leadinsight.module.lead.service.LeadDedupService;
 import lombok.RequiredArgsConstructor;
@@ -39,10 +38,10 @@ public class LeadDedupServiceImpl implements LeadDedupService {
         if (cached != null) {
             throw duplicate(cached);
         }
-        Lead existing = findByFingerprint(fingerprint);
-        if (existing != null) {
-            register(fingerprint, existing.getId());
-            throw duplicate(existing.getId());
+        Long existingId = findIdByFingerprint(fingerprint);
+        if (existingId != null) {
+            register(fingerprint, existingId);
+            throw duplicate(existingId);
         }
     }
 
@@ -56,8 +55,7 @@ public class LeadDedupServiceImpl implements LeadDedupService {
 
     @Override
     public void resolveConflict(String fingerprint) {
-        Lead existing = findByFingerprint(fingerprint);
-        Long existingId = existing == null ? null : existing.getId();
+        Long existingId = findIdByFingerprint(fingerprint);
         if (existingId != null) {
             register(fingerprint, existingId);
         }
@@ -65,12 +63,13 @@ public class LeadDedupServiceImpl implements LeadDedupService {
         throw new BizException(ResultCode.DUPLICATE_CONTENT, buildMessage(existingId));
     }
 
-    private Lead findByFingerprint(String fingerprint) {
+    private Long findIdByFingerprint(String fingerprint) {
         if (fingerprint == null) {
             return null;
         }
-        // 用自定义 SQL 查询（含已逻辑删除行），与唯一索引 uk_lead_fingerprint 的口径一致
-        return leadMapper.selectByFingerprintIncludingDeleted(fingerprint);
+        // 用自定义 SQL 查询（含已逻辑删除行），与唯一索引 uk_lead_fingerprint 的口径一致；
+        // 只取 id——调用方仅需主键拼提示文案，避免把整封邮件正文读出来
+        return leadMapper.selectIdByFingerprintIncludingDeleted(fingerprint);
     }
 
     private BizException duplicate(Long existingLeadId) {

@@ -83,17 +83,18 @@ class FollowUpServiceImplClaimTest {
             inv.<LeadFollowUp>getArgument(0).setId(50L);
             return 1;
         });
-        LeadFollowUp persisted = new LeadFollowUp();
-        persisted.setId(50L);
-        persisted.setLeadId(3L);
-        persisted.setUserId(1L);
-        when(followUpMapper.selectById(50L)).thenReturn(persisted);
 
         FollowUpVO vo = service.create(3L, request(), 1L);
 
         assertNotNull(vo);
         verify(leadAccessService).getClaimed(3L, 1L);
         verify(followUpMapper).insert(any(LeadFollowUp.class));
+        // P-13 / Q04b：写后不再整行回读，VO 由插入前的实体直接装配
+        verify(followUpMapper, never()).selectById(any());
+        assertEquals(50L, vo.getId(), "id 须取插入回填的自增值");
+        assertNotNull(vo.getCreatedAt(), "createdAt 须在 insert 前显式赋值，否则序列化为 null");
+        assertEquals(0, vo.getCreatedAt().getNano(),
+                "createdAt 须截断到秒，与 DATETIME(0) 精度一致，否则响应 JSON 形态变化");
     }
 
     // ---------------------------------------------------------------- hasFollowUps（DEF-02 删除前置）
@@ -101,14 +102,14 @@ class FollowUpServiceImplClaimTest {
     @Test
     @DisplayName("hasFollowUps：有跟进记录（含自动留痕）→ true")
     void hasFollowUps_trueWhenRowsExist() {
-        when(followUpMapper.selectCount(any())).thenReturn(2L);
+        when(followUpMapper.existsByLeadId(9L)).thenReturn(1);
         assertEquals(true, service.hasFollowUps(9L));
     }
 
     @Test
     @DisplayName("hasFollowUps：无任何跟进 → false")
     void hasFollowUps_falseWhenNoRows() {
-        when(followUpMapper.selectCount(any())).thenReturn(0L);
+        when(followUpMapper.existsByLeadId(9L)).thenReturn(null);
         assertEquals(false, service.hasFollowUps(9L));
     }
 }

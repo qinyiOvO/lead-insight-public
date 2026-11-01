@@ -27,6 +27,7 @@ import com.leadinsight.module.lead.vo.ScoreDetailVO;
 import com.leadinsight.module.lead.dto.LeadCreationOutcome;
 import com.leadinsight.module.extract.service.ExtractOutcome;
 import com.leadinsight.module.extract.service.LeadExtractService;
+import com.leadinsight.module.user.enums.UserRole;
 import com.leadinsight.statemachine.LeadStatusMachine;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +35,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -73,6 +75,18 @@ public class LeadServiceImpl implements LeadService {
     public PageResult<LeadVO> page(LeadQueryRequest query, Long userId, String role) {
         int pageNo = LeadQuerySupport.clampPage(query.getPage());
         int limit = LeadQuerySupport.clampLimit(query.getLimit());
+        int fetch = (pageNo - 1) * limit + limit;
+
+        // D-06：专员视角的 (owner_id=:u OR owner_id IS NULL) 会让优化器放弃有序索引扫描，
+        // 退化为「全表取回 + filesort」（10 万行实测 372ms，两段各取 15 行仅 0.17ms）。
+        // 满足全部条件时拆成两段各自有序扫描再归并；否则走原路径，行为与改造前一致。
+        // 依据 docs/02-架构/D06-OR条件拆分改写方案-v1.0.md §3.5
+        if (SPLIT_OR_ENABLED
+                && UserRole.fromCode(role) != UserRole.SUPERVISOR
+                && fetch <= SPLIT_MAX_FETCH
+                && !LeadQuerySupport.hasResidualFilter(query)) {
+            return pageByOwnerSplit(query, userId, role, pageNo, limit, fetch);
+        }
 
         LambdaQueryWrapper<Lead> wrapper = LeadQuerySupport.buildWrapper(query);
         // 读侧可见范围强制过滤（横向越权防护）：专员=本人认领+未认领池；主管=全量只读
@@ -84,6 +98,75 @@ public class LeadServiceImpl implements LeadService {
         // 整页一次性回填负责人姓名（ownerName），未认领保持 null
         leadOwnerEnricher.enrich(items);
         return PageResult.of(items, result.getTotal(), pageNo, limit);
+    }
+
+    // ------------------------------------------------------------------ D-06：OR 拆分路径
+
+    /** D-06 开关：置 false 即回到改造前的单查询路径（代码保留，便于对照与回滚）。 */
+    private static final boolean SPLIT_OR_ENABLED = true;
+
+    /**
+     * D-06 每段最大取回条数：{@code offset + limit} 超过它则回退原路径。
+     * 两段合计最多 2×2000 条内存对象（约 1 MB），再深的分页收益递减。
+     */
+    private static final int SPLIT_MAX_FETCH = 2000;
+
+    /**
+     * D-06：把权限 OR 拆成两段独立查询后归并。
+     *
+     * <p>计数沿用原条件（含 OR）不变——{@code COUNT} 不需要排序，走覆盖索引已足够快，
+     * 不在本方案范围内。</p>
+     */
+    private PageResult<LeadVO> pageByOwnerSplit(LeadQueryRequest query, Long userId, String role,
+                                                int pageNo, int limit, int fetch) {
+        // 计数用不带列投影的 wrapper：selectCount 会把 select(...) 拼进 COUNT(...) 生成非法 SQL（§十 E-01）
+        LambdaQueryWrapper<Lead> countWrapper = LeadQuerySupport.buildConditions(query);
+        LeadQuerySupport.applyVisibility(countWrapper, userId, role);
+        long total = leadMapper.selectCount(countWrapper);
+        if (total == 0) {
+            return PageResult.of(List.of(), 0L, pageNo, limit);
+        }
+
+        List<Lead> merged = mergeOwnerBranches(query, userId, fetch);
+        int offset = (pageNo - 1) * limit;
+        List<Lead> pageRows = offset >= merged.size()
+                ? List.of()
+                : merged.subList(offset, Math.min(offset + limit, merged.size()));
+        List<LeadVO> items = pageRows.stream().map(LeadVO::from).toList();
+        leadOwnerEnricher.enrich(items);
+        return PageResult.of(items, total, pageNo, limit);
+    }
+
+    /**
+     * 两段各自取前 {@code fetch} 条，再按 {@link LeadQuerySupport#comparatorFor} 归并。
+     *
+     * <p>正确性：全集前 {@code offset+limit} 条中任一条必属于某一段，且在该段内排名不超过
+     * 其全集排名（≤ fetch），故必落在该段取回的前 fetch 条内；归并后完整覆盖目标区间。</p>
+     */
+    private List<Lead> mergeOwnerBranches(LeadQueryRequest query, Long userId, int fetch) {
+        List<Lead> mine = fetchOwnerBranch(query, userId, fetch);
+        List<Lead> pool = fetchOwnerBranch(query, null, fetch);
+        List<Lead> merged = new ArrayList<>(mine.size() + pool.size());
+        merged.addAll(mine);
+        merged.addAll(pool);
+        merged.sort(LeadQuerySupport.comparatorFor(query));
+        return merged;
+    }
+
+    /**
+     * 取单段前 {@code fetch} 条。
+     *
+     * @param ownerBranch 非 null=本人认领段（{@code owner_id = ?}）；null=未认领池段
+     */
+    private List<Lead> fetchOwnerBranch(LeadQueryRequest query, Long ownerBranch, int fetch) {
+        LambdaQueryWrapper<Lead> wrapper = LeadQuerySupport.buildWrapper(query);
+        // 用户筛选项（含 query.ownerId）由 buildWrapper 原样带入，两段都必须保留
+        LeadQuerySupport.applyOwnerBranch(wrapper, ownerBranch);
+        LeadQuerySupport.applySort(wrapper, query);
+        // searchCount=false：计数已单独完成，这里只要前 fetch 条，避免重复 COUNT
+        Page<Lead> segment = new Page<>(1, fetch);
+        segment.setSearchCount(false);
+        return leadMapper.selectPage(segment, wrapper).getRecords();
     }
 
     @Override
@@ -98,6 +181,8 @@ public class LeadServiceImpl implements LeadService {
                 .eq(Lead::getImportTaskId, importTaskId)
                 // 按提交顺序（即条目 seq 对应的创建顺序）展示
                 .orderByAsc(Lead::getId);
+        // P-01：与全量列表同口径的列投影（ORDER BY id 仍走 idx_lead_import_task）
+        LeadQuerySupport.applyListProjection(wrapper);
         IPage<Lead> result = leadMapper.selectPage(new Page<>(pageNo, pageSize), wrapper);
         List<LeadVO> items = result.getRecords().stream().map(LeadVO::from).toList();
         leadOwnerEnricher.enrich(items);

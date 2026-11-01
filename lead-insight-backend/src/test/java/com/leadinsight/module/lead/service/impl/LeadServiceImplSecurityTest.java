@@ -80,20 +80,59 @@ class LeadServiceImplSecurityTest {
         return (AbstractWrapper<Lead, ?, ?>) captor.getValue();
     }
 
+    /** D-06 拆分路径会把一次分页拆成两段查询，需要拿到全部 wrapper 才能验证权限完整性。 */
+    @SuppressWarnings("unchecked")
+    private java.util.List<AbstractWrapper<Lead, ?, ?>> captureAllPageWrappers() {
+        ArgumentCaptor<Wrapper<Lead>> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(leadMapper, atLeastOnce()).selectPage(any(Page.class), captor.capture());
+        java.util.List<AbstractWrapper<Lead, ?, ?>> wrappers = new java.util.ArrayList<>();
+        for (Wrapper<Lead> wrapper : captor.getAllValues()) {
+            wrappers.add((AbstractWrapper<Lead, ?, ?>) wrapper);
+        }
+        return wrappers;
+    }
+
+    /** §十 E-01：计数 wrapper 必须无列投影，否则 selectCount 会拼出 COUNT(列清单) 非法 SQL。 */
+    @SuppressWarnings("unchecked")
+    private AbstractWrapper<Lead, ?, ?> captureCountWrapper() {
+        ArgumentCaptor<Wrapper<Lead>> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(leadMapper, atLeastOnce()).selectCount(captor.capture());
+        return (AbstractWrapper<Lead, ?, ?>) captor.getValue();
+    }
+
     // ---------------------------------------------------------- 列表可见范围（C-1）
 
     @Test
-    @DisplayName("专员列表：强制追加 (owner_id = 本人 OR owner_id IS NULL)")
+    @DisplayName("专员列表（D-06 拆分）：两段分别限定本人/未认领，合起来才是完整可见范围")
     void page_specialistScopedToOwnAndUnclaimed() {
+        // D-06 拆分路径需 total > 0 才会执行两段查询（否则直接返回空页）
+        when(leadMapper.selectCount(any())).thenReturn(17L);
         when(leadMapper.selectPage(any(Page.class), any())).thenAnswer(inv -> inv.getArgument(0));
 
         service.page(new LeadQueryRequest(), 7L, "SPECIALIST");
 
-        AbstractWrapper<Lead, ?, ?> wrapper = capturePageWrapper();
-        String sql = wrapper.getSqlSegment().toLowerCase();
-        assertTrue(sql.contains("owner_id"), "专员列表必须带归属限定");
-        assertTrue(sql.contains("is null"), "专员列表必须包含未认领池条件（owner_id IS NULL）");
-        assertTrue(wrapper.getParamNameValuePairs().values().contains(7L), "必须绑定当前用户 id");
+        java.util.List<AbstractWrapper<Lead, ?, ?>> wrappers = captureAllPageWrappers();
+        assertEquals(2, wrappers.size(), "专员视角应拆成两段查询（本人认领 + 未认领池）");
+
+        String joined = wrappers.stream()
+                .map(w -> w.getSqlSegment().toLowerCase())
+                .collect(java.util.stream.Collectors.joining(" || "));
+        assertTrue(joined.contains("owner_id = "), "必须有一段限定本人认领，实际=" + joined);
+        assertTrue(joined.contains("owner_id is null"), "必须有一段为未认领池，实际=" + joined);
+
+        // 核心安全断言：任何一段都不得「不带归属限定」，否则就是越权入口
+        for (AbstractWrapper<Lead, ?, ?> w : wrappers) {
+            String sql = w.getSqlSegment().toLowerCase();
+            assertTrue(sql.contains("owner_id"), "每段都必须带归属限定，实际=" + sql);
+        }
+        // 本人认领段必须绑定当前用户 id（防止把别人 id 或 null 绑进去）
+        assertTrue(wrappers.stream().anyMatch(w -> w.getParamNameValuePairs().values().contains(7L)),
+                "本人认领段必须绑定当前用户 id 7");
+
+        // §十 E-01：计数 wrapper 必须不带列投影，否则 selectCount 生成 COUNT(列清单) → 500
+        String countSelect = captureCountWrapper().getSqlSelect();
+        assertTrue(countSelect == null || countSelect.isBlank(),
+                "计数 wrapper 不得带列投影，实际 select=" + countSelect);
     }
 
     @Test

@@ -3,7 +3,6 @@ package com.leadinsight.module.importtask.executor;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.AbstractWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.leadinsight.module.importtask.entity.ImportTask;
 import com.leadinsight.module.importtask.entity.ImportTaskItem;
@@ -22,11 +21,11 @@ import org.mockito.ArgumentCaptor;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -100,15 +99,13 @@ class ImportTaskExecutorBatchRateLimitTest {
         String allItemParams = joinParamValues(itemCaptor.getAllValues());
         assertTrue(allItemParams.contains("DEGRADED"), "限流条目必须落 DEGRADED");
         assertTrue(allItemParams.contains(RATE_LIMIT_REASON), "reason 必须携带可读限流文案");
-        // ③ DEF-04：限流降级计数落 manual_count 桶（转人工单列，不再计入 fail_count）；
+        // ③ DEF-04：限流降级计数落 MANUAL 桶（转人工单列，不再计入 FAIL 桶）；
+        //    P-10 改造后计数走 bumpCounters 的增量参数，故直接断言增量数值而不是 SQL 文本：
+        //    processed+2 / success+0 / duplicate+0 / manual+2 / fail+0
         //    全降级时线索其实均已入库 → 任务终态 PARTIAL，不得判 FAILED（K-1 Amendment）
+        verify(taskMapper).bumpCounters(eq(7L), eq(2), eq(0), eq(0), eq(2), eq(0));
         ArgumentCaptor<Wrapper<ImportTask>> taskCaptor = ArgumentCaptor.forClass(Wrapper.class);
         verify(taskMapper, atLeast(2)).update(any(), taskCaptor.capture());
-        String taskSqlSet = joinSqlSet(taskCaptor.getAllValues());
-        assertTrue(taskSqlSet.contains("manual_count = manual_count + 1"),
-                "降级条目必须计入 manual_count 桶（DEF-04：转人工单列）");
-        assertFalse(taskSqlSet.contains("fail_count = fail_count + 1"),
-                "降级条目不得再计入 fail_count（DEF-04：转人工不是失败）");
         String taskParams = joinParamValues(taskCaptor.getAllValues());
         assertTrue(taskParams.contains("PARTIAL"), "全部条目转人工时任务终态必须为 PARTIAL");
         assertFalse(taskParams.contains("FAILED"),
@@ -126,6 +123,8 @@ class ImportTaskExecutorBatchRateLimitTest {
         executor.process(7L, List.of("邮件一", "邮件二"), 9L, null);
 
         verify(leadService, times(2)).createFromBatch(any(), any(), any(), any());
+        // 四桶守恒（P-10 后仍成立）：混合场景 processed+2 / success+1 / manual+1 / 其余 0
+        verify(taskMapper).bumpCounters(eq(7L), eq(2), eq(1), eq(0), eq(1), eq(0));
         // High-2 回归锚定：必须断言"写进 import_task_item 的**数据**"，不能只验状态/文案——
         // 漏设 setLeadId/setCustomerName 时 item_status 仍是 SUCCESS、reason 仍是 null，状态型断言照绿。
         ArgumentCaptor<Wrapper<ImportTaskItem>> itemCaptor = ArgumentCaptor.forClass(Wrapper.class);
@@ -161,6 +160,8 @@ class ImportTaskExecutorBatchRateLimitTest {
         assertTrue(itemParams.contains("李四"), "条1 SUCCESS 必须回填 customerName(李四)");
         assertTrue(itemParams.contains("王五"), "条2 SUCCESS 必须回填 customerName(王五)");
         // 全成功 → 任务终态 SUCCESS（K-1：fail=0）
+        // 四桶守恒：全成功 processed+2 / success+2 / 其余三桶 0
+        verify(taskMapper).bumpCounters(eq(7L), eq(2), eq(2), eq(0), eq(0), eq(0));
         ArgumentCaptor<Wrapper<ImportTask>> taskCaptor = ArgumentCaptor.forClass(Wrapper.class);
         verify(taskMapper, atLeast(2)).update(any(), taskCaptor.capture());
         String taskParams = joinParamValues(taskCaptor.getAllValues());
@@ -178,16 +179,6 @@ class ImportTaskExecutorBatchRateLimitTest {
                 .map(Map::values)
                 .flatMap(Collection::stream)
                 .map(String::valueOf)
-                .reduce((a, b) -> a + "|" + b)
-                .orElse("");
-    }
-
-    /** 取 wrapper 的 SET 片段（setSql 原文，如 manual_count = manual_count + 1；Update 语义） */
-    private String joinSqlSet(Collection<? extends Wrapper<?>> wrappers) {
-        return wrappers.stream()
-                .map(w -> (LambdaUpdateWrapper<?>) w)
-                .map(LambdaUpdateWrapper::getSqlSet)
-                .filter(Objects::nonNull)
                 .reduce((a, b) -> a + "|" + b)
                 .orElse("");
     }

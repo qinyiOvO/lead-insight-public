@@ -27,7 +27,12 @@ import java.util.List;
  * <p>@Async 方法只由 ImportTaskServiceImpl 跨 bean 调用，绝不在本类内部自调用——
  * 避免绕过 Spring 代理导致异步失效（与 LeadExtractionProcessor 同款纪律）。
  * 整批任务串行占用 1 个 import-task- 线程，批内逐条：条目置 RUNNING → 调
- * LeadService.createFromBatch（复用单条创建全管线，抽取同步）→ 归桶 → 刷任务计数。</p>
+ * LeadService.createFromBatch（复用单条创建全管线，抽取同步）→ 归桶 → 计数入内存缓冲。</p>
+ *
+ * <p><b>计数刷库策略（P-10）</b>：计数不再"每条一次 UPDATE 同一行"，而是内存累加、
+ * 每 {@link #FLUSH_INTERVAL_MILLIS} 毫秒刷一次，收尾与失败路径各强制刷一次。
+ * 进度接口因此最多滞后约 2 秒（AC-27 只要求"周期性展示进度"，未约束处理中精度）；
+ * 终态精确性由收尾强制刷保证，四桶之和 = total_count 不变。</p>
  *
  * <p>归桶口径（openapi 1.3.3 + DEF-04 四桶）：DUPLICATE=指纹命中（catch 40901）；
  * SUCCESS=线索建成且抽取 SUCCESS；DEGRADED=线索建成但抽取 FAILED/DEGRADED（照常产线索，
@@ -39,9 +44,59 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ImportTaskExecutor {
 
+    /**
+     * 计数刷库间隔（P-10/Q18 选型 C）。取 2 秒而不是"每 10 条"的原因：
+     * 批量管线受 1 QPS 模型限流约束，单条约 1 秒，按条数攒批会让进度条滞后 10 秒以上；
+     * 按时间刷则滞后恒定 ≤2 秒，与前端 2 秒轮询同频。
+     */
+    static final long FLUSH_INTERVAL_MILLIS = 2_000L;
+
     private final ImportTaskMapper taskMapper;
     private final ImportTaskItemMapper itemMapper;
     private final LeadService leadService;
+
+    /** 任务四桶（DEF-04）：SUCCESS / DUPLICATE / MANUAL（转人工）/ FAIL */
+    enum Bucket { SUCCESS, DUPLICATE, MANUAL, FAIL }
+
+    /**
+     * 任务计数的内存累加器。<b>一次任务一个实例</b>——执行器是单例，做成字段会导致并发任务串账。
+     * 只记增量，刷库用 {@code col = col + ?}，因此不需要先读任务行拿基线。
+     */
+    static final class CounterBuffer {
+        private int processed;
+        private int success;
+        private int duplicate;
+        private int manual;
+        private int fail;
+        private long lastFlushAt = System.currentTimeMillis();
+
+        void record(Bucket bucket) {
+            processed++;
+            switch (bucket) {
+                case SUCCESS -> success++;
+                case DUPLICATE -> duplicate++;
+                case MANUAL -> manual++;
+                case FAIL -> fail++;
+            }
+        }
+
+        boolean isFlushDue(long now) {
+            return processed > 0 && now - lastFlushAt >= FLUSH_INTERVAL_MILLIS;
+        }
+
+        boolean isEmpty() {
+            return processed == 0;
+        }
+
+        void reset(long now) {
+            processed = 0;
+            success = 0;
+            duplicate = 0;
+            manual = 0;
+            fail = 0;
+            lastFlushAt = now;
+        }
+    }
 
     /**
      * 异步执行整批任务。segments 与 seq 一一对应（seq = 下标 + 1）。
@@ -59,19 +114,26 @@ public class ImportTaskExecutor {
             return;
         }
 
+        // 一次任务一个累加器：执行器是单例，缓冲绝不能做成字段（并发任务会串账）
+        CounterBuffer counters = new CounterBuffer();
         try {
             for (int i = 0; i < segments.size(); i++) {
-                processItem(taskId, i + 1, segments.get(i), userId, clientIp);
+                processItem(taskId, i + 1, segments.get(i), userId, clientIp, counters);
             }
+            // 收尾强制刷：保证终态计数精确（四桶之和 = total_count），不受 2 秒窗口影响
+            flushCounters(taskId, counters);
             finalizeTask(taskId);
         } catch (Exception e) {
             // 兜底：单条失败不中断整批已在上层处理；此处只防逐条循环之外的意外（DB 断连等）
             log.error("批量导入任务整体异常: taskId={}", taskId, e);
+            // 失败路径也要先刷，否则已处理条目的计数会随内存一起丢弃
+            flushCounters(taskId, counters);
             markFailed(taskId, "任务执行异常: " + e.getMessage());
         }
     }
 
-    private void processItem(Long taskId, int seq, String segment, Long userId, String clientIp) {
+    private void processItem(Long taskId, int seq, String segment, Long userId, String clientIp,
+                             CounterBuffer counters) {
         markItemRunning(taskId, seq);
         ImportTaskItem patch = new ImportTaskItem();
         patch.setTaskId(taskId);
@@ -88,42 +150,55 @@ public class ImportTaskExecutor {
             patch.setCustomerName(outcome.customerName());
             if (outcome.extractStatus() == ExtractStatus.SUCCESS) {
                 patch.setItemStatus(ImportTaskItemStatus.SUCCESS.name());
-                bumpCounters(taskId, "success_count");
+                recordAndMaybeFlush(taskId, counters, Bucket.SUCCESS);
             } else {
                 // 线索已建成但抽取 FAILED/DEGRADED：照常产线索，条目记 DEGRADED（leadId 有值）。
                 // DEF-04：转人工单列 manual_count，不再计入 fail_count——转人工不是失败
                 patch.setItemStatus(ImportTaskItemStatus.DEGRADED.name());
                 patch.setReason(outcome.extractMessage());
-                bumpCounters(taskId, "manual_count");
+                recordAndMaybeFlush(taskId, counters, Bucket.MANUAL);
             }
         } catch (BizException e) {
             if (e.getResultCode() == ResultCode.DUPLICATE_CONTENT) {
                 // 指纹命中：reason 携带已存在线索 id（LeadDedupService 的 40901 文案）
                 patch.setItemStatus(ImportTaskItemStatus.DUPLICATE.name());
                 patch.setReason(e.getMessage());
-                bumpCounters(taskId, "duplicate_count");
+                recordAndMaybeFlush(taskId, counters, Bucket.DUPLICATE);
             } else {
                 log.warn("批量条目创建失败: taskId={} seq={} code={}", taskId, seq, e.getResultCode().getCode(), e);
                 patch.setItemStatus(ImportTaskItemStatus.FAILED.name());
                 patch.setReason(e.getMessage());
-                bumpCounters(taskId, "fail_count");
+                recordAndMaybeFlush(taskId, counters, Bucket.FAIL);
             }
         } catch (Exception e) {
             log.warn("批量条目创建异常: taskId={} seq={}", taskId, seq, e);
             patch.setItemStatus(ImportTaskItemStatus.FAILED.name());
             patch.setReason("条目处理异常，已转人工");
-            bumpCounters(taskId, "fail_count");
+            recordAndMaybeFlush(taskId, counters, Bucket.FAIL);
         }
 
         saveItem(patch);
     }
 
-    /** 单条处理完成后刷任务计数行：processed_count + 1 与命中桶 +1（同一条 UPDATE） */
-    private void bumpCounters(Long taskId, String bucketColumn) {
-        taskMapper.update(null, Wrappers.<ImportTask>lambdaUpdate()
-                .setSql("processed_count = processed_count + 1")
-                .setSql(bucketColumn + " = " + bucketColumn + " + 1")
-                .eq(ImportTask::getId, taskId));
+    /** 归桶后记账；距上次刷库满 {@link #FLUSH_INTERVAL_MILLIS} 才真正落库 */
+    private void recordAndMaybeFlush(Long taskId, CounterBuffer counters, Bucket bucket) {
+        counters.record(bucket);
+        if (counters.isFlushDue(System.currentTimeMillis())) {
+            flushCounters(taskId, counters);
+        }
+    }
+
+    /** 增量一次性写回任务行（空缓冲不产生 SQL）；刷完清零并重置计时窗口 */
+    private void flushCounters(Long taskId, CounterBuffer counters) {
+        if (counters.isEmpty()) {
+            return;
+        }
+        taskMapper.bumpCounters(taskId, counters.processed, counters.success,
+                counters.duplicate, counters.manual, counters.fail);
+        log.debug("批量任务计数刷库: taskId={} processed+={} success+={} duplicate+={} manual+={} fail+={}",
+                taskId, counters.processed, counters.success, counters.duplicate,
+                counters.manual, counters.fail);
+        counters.reset(System.currentTimeMillis());
     }
 
     private void markItemRunning(Long taskId, int seq) {

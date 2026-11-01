@@ -30,6 +30,20 @@ export interface StatusOption {
 
 const STATUS_VALUES: LeadStatus[] = ['NEW', 'FOLLOWING', 'WON', 'INVALID'];
 const CATEGORY_VALUES: IntentCategory[] = ['CONSULT', 'QUOTE', 'COOPERATION', 'COMPLAINT', 'IRRELEVANT'];
+/** 排序白名单（与 openapi / LeadQueryRequest 的枚举一致，非法值一律回落默认） */
+const SORT_VALUES: LeadSortField[] = ['priority_score', 'created_at'];
+const ORDER_VALUES: SortOrder[] = ['asc', 'desc'];
+
+/**
+ * 后端 `GET /api/v1/leads` 的**缺省排序**（openapi `sort.default: priority_score`、`order.default: desc`，
+ * 与 `LeadQueryRequest` 字段初值一致）。
+ *
+ * 供 {@link useLeadQuery} 判断"能否省掉排序参数"：只有请求值**正好等于后端缺省**时省略，
+ * 因为此时省与不省的 SQL 完全相同。**不能拿"本页默认"当判据**——本页默认与后端缺省不同时
+ * （列表页 `created_at`），省略就等于把排序决定权交回后端缺省，排序意图被静默丢弃（D-01 的成因）。
+ */
+const BACKEND_DEFAULT_SORT: LeadSortField = 'priority_score';
+const BACKEND_DEFAULT_ORDER: SortOrder = 'desc';
 
 function readString(value: unknown): string {
   if (Array.isArray(value)) return typeof value[0] === 'string' ? value[0] : '';
@@ -101,6 +115,9 @@ export function useLeadQuery(options: UseLeadQueryOptions) {
     if (keyword) out.q = keyword;
     if (query.status) out.status = query.status;
     if (query.intentCategory) out.intentCategory = query.intentCategory;
+    // URL 洁净度口径（与 fetchList 的省参数口径**不同**，别合并）：
+    // 这里比的是"本页默认"，即用户未主动改过排序时 URL 不留冗余参数；
+    // fetchList 比的是"后端缺省"，因为那里只关心省掉后 SQL 会不会变。
     if (query.sort !== defaultSort) out.sort = query.sort;
     if (query.order !== defaultOrder) out.order = query.order;
     return out;
@@ -119,8 +136,13 @@ export function useLeadQuery(options: UseLeadQueryOptions) {
       : '';
 
     query.q = readString(source.q);
-    query.sort = readString(source.sort) === 'created_at' ? 'created_at' : defaultSort;
-    query.order = readString(source.order) === 'asc' ? 'asc' : defaultOrder;
+    // D-01：必须显式识别两个合法值，不能只认 'created_at'——
+    // 在 defaultSort='created_at' 的列表页上，URL 里 sort=priority_score（用户点了"优先级"表头）
+    // 若被判为非法而回落默认，刷新/前进后退会静默丢掉用户的排序选择。
+    const sort = readString(source.sort);
+    query.sort = SORT_VALUES.includes(sort as LeadSortField) ? (sort as LeadSortField) : defaultSort;
+    const order = readString(source.order);
+    query.order = ORDER_VALUES.includes(order as SortOrder) ? (order as SortOrder) : defaultOrder;
   }
 
   function urlMatches(source: LocationQuery): boolean {
@@ -139,13 +161,20 @@ export function useLeadQuery(options: UseLeadQueryOptions) {
     loading.value = true;
     error.value = false;
     try {
+      // D-01（2026-11-01 关闭）：省参数的判据由"等于本页默认"改为"等于后端缺省"，且 sort/order 成对判断。
+      // 原 F-2 规则拿本页默认做判据，列表页（defaultSort=created_at）的排序意图因此永远到不了后端：
+      // 后端 sort 缺省是 priority_score，"省参数"= 让后端按优先级排，与页面声明不符，
+      // 且 B2 重建的 idx_lead_created_at 在默认路径上无人消费。
+      // 改为对后端缺省后两页各自正确：/leads 默认下发 sort=created_at&order=desc（页面口径）；
+      // /workbench 默认正好等于后端缺省 → 不传，AC-18 三层决胜仍由后端保证。
+      // URL 洁净度不在此处管——serializeQuery 仍按"本页默认"决定写不写 URL，两件事职责分开。
+      const omitSort =
+        query.sort === BACKEND_DEFAULT_SORT && query.order === BACKEND_DEFAULT_ORDER;
       const result = await listLeads({
         page: query.page,
         limit: query.limit,
-        // F-2：显式传参=用户意图——仅当排序偏离默认（用户在筛选区/表头主动改变）时才传；
-        // 初次加载走后端默认（priority_score desc），避免筛选区出现"未操作却显脏值"
-        sort: query.sort !== defaultSort ? query.sort : undefined,
-        order: query.order !== defaultOrder ? query.order : undefined,
+        sort: omitSort ? undefined : query.sort,
+        order: omitSort ? undefined : query.order,
         status: query.status || undefined,
         intentCategory: query.intentCategory || undefined,
         q: query.q.trim() || undefined,

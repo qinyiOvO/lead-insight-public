@@ -135,6 +135,10 @@ public class ScoringServiceImpl implements ScoringService {
 
     private void rewriteDetails(Long leadId, List<ScoringRuleCalculator.RuleScore> rules) {
         scoreDetailMapper.deleteByLeadId(leadId);
+        if (rules.isEmpty()) {
+            return;
+        }
+        List<LeadScoreDetail> details = new ArrayList<>(rules.size());
         for (ScoringRuleCalculator.RuleScore rule : rules) {
             LeadScoreDetail detail = new LeadScoreDetail();
             detail.setLeadId(leadId);
@@ -145,7 +149,9 @@ public class ScoringServiceImpl implements ScoringService {
             detail.setItemScore(rule.itemScore());
             detail.setMaxScore(rule.maxScore());
             detail.setReason(rule.reason());
-            scoreDetailMapper.insert(detail);
+            details.add(detail);
         }
+        // P-09：N 次单行 INSERT → 1 次多值 INSERT（列序固定，不再逐条往返）
+        scoreDetailMapper.insertBatch(details);
     }
 }

@@ -13,6 +13,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -60,20 +62,24 @@ public class FollowUpServiceImpl implements FollowUpService {
         entity.setUserId(userId);
         entity.setFollowType(normalizeFollowType(request.getFollowType()));
         entity.setContent(request.getContent());
+        // P-13 / Q04b：显式赋值创建时间，插入后直接用实体装配 VO，省去一次回读。
+        // 显式赋值后 insert 会带上 created_at 列，库内值与返回给前端的值必然一致（比依赖 DEFAULT 更准）。
+        // 必须截断到秒：lead_follow_up.created_at 是 DATETIME(0)，而 LocalDateTime.now() 带纳秒，
+        // 不截断会让响应 JSON 从 "2026-11-01T16:41:55" 变成带小数秒的形态（违反「不改响应 JSON」红线）。
+        entity.setCreatedAt(LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS));
         leadFollowUpMapper.insert(entity);
         log.debug("新增跟进记录: leadId={} userId={} id={}", leadId, userId, entity.getId());
-        FollowUpVO vo = FollowUpVO.from(leadFollowUpMapper.selectById(entity.getId()));
+        FollowUpVO vo = FollowUpVO.from(entity);
         followUpUserEnricher.enrich(vo);
         return vo;
     }
 
     @Override
     public boolean hasFollowUps(Long leadId) {
-        // DEF-02：删除前置校验。计数含全部来源（手动跟进 + 认领/状态迁移自动留痕）——
+        // DEF-02：删除前置校验。含全部来源（手动跟进 + 认领/状态迁移自动留痕）——
         // 只要有任何留痕，删除即被拒绝，审计链不随线索消失。
-        Long count = leadFollowUpMapper.selectCount(Wrappers.<LeadFollowUp>lambdaQuery()
-                .eq(LeadFollowUp::getLeadId, leadId));
-        return count != null && count > 0;
+        // 存在性查询（SELECT 1 ... LIMIT 1）：命中首行即返回，不再数完全部记录
+        return leadFollowUpMapper.existsByLeadId(leadId) != null;
     }
 
     @Override

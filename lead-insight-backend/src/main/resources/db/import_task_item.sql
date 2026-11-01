@@ -24,7 +24,7 @@ CREATE TABLE `import_task_item` (
     `updated_at`    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_import_task_item_seq` (`task_id`, `seq`),
-    KEY `idx_import_task_item_status` (`item_status`),
+    -- v1.3：原 idx_import_task_item_status 删除（条目状态无按状态检索的消费点）
     KEY `idx_import_task_item_lead` (`lead_id`),
     CONSTRAINT `fk_import_task_item_task`
         FOREIGN KEY (`task_id`) REFERENCES `import_task` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,

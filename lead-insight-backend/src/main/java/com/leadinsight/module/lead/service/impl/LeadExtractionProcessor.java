@@ -1,6 +1,5 @@
 package com.leadinsight.module.lead.service.impl;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.leadinsight.module.extract.service.ExtractOutcome;
 import com.leadinsight.module.extract.service.LeadExtractService;
 import com.leadinsight.module.lead.entity.Lead;
@@ -40,9 +39,9 @@ public class LeadExtractionProcessor {
      */
     public int persistWaiting(Lead lead, Long userId) {
         lead.setExtractStatus(ExtractStatus.WAITING.name());
-        return leadMapper.update(lead, Wrappers.<Lead>lambdaUpdate()
-                .eq(Lead::getId, lead.getId())
-                .and(w -> w.isNull(Lead::getOwnerId).or().eq(Lead::getOwnerId, userId)));
+        // §5.3：只 SET extract_status + updated_at。原 update(lead, wrapper) 会把实体全部非 null 字段
+        // 一并回写，而重抽取这一刻实际只有 1 列变化，多写的列要多维护 6 棵索引。
+        return leadMapper.updateExtractStatusGuarded(lead.getId(), lead.getExtractStatus(), userId);
     }
 
     /**
@@ -53,7 +52,7 @@ public class LeadExtractionProcessor {
     public void extractAndApplyAsync(Lead lead, Long operatorId, String clientIp) {
         try {
             ExtractOutcome outcome = leadExtractService.extract(lead, operatorId, clientIp);
-            leadMapper.updateById(lead);
+            leadMapper.updateExtractFields(lead);
             scoringService.score(lead);
             log.info("异步线索抽取完成: leadId={} status={} message={}",
                     lead.getId(), outcome.status(), outcome.message());
@@ -64,7 +63,7 @@ public class LeadExtractionProcessor {
             lead.setExtractStatus(ExtractStatus.DEGRADED.name());
             lead.setExtractConfidence(null);
             lead.setConfidenceLevel(null);
-            leadMapper.updateById(lead);
+            leadMapper.updateExtractFields(lead);
         }
     }
 }

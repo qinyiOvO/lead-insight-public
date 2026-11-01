@@ -2,6 +2,8 @@ package com.leadinsight.module.dashboard.service.impl;
 
 import com.leadinsight.module.dashboard.vo.OverviewVO;
 import com.leadinsight.module.dashboard.vo.TrendVO;
+import com.leadinsight.module.followup.mapper.LeadFollowUpMapper;
+import com.leadinsight.module.lead.mapper.LeadMapper;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -11,6 +13,8 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * 看板纯逻辑单测：R-3 转化率口径（OverviewVO.of）与趋势补零序列（buildSeries）。
@@ -40,6 +44,20 @@ class DashboardServiceImplTest {
     void overview_emptyBoardAllZero() {
         OverviewVO vo = OverviewVO.of(0, 0, 0, 0, 0, 0);
         assertEquals(0L, vo.getTotalLeads());
+        assertEquals(new BigDecimal("0.0000"), vo.getConversionRate());
+    }
+
+    @Test
+    void overview_emptyAggregateRowFallsBackToZero() {
+        // 空表时 SUM(cond) 为 NULL（Mapper 侧已 COALESCE，此处再验证 Java 侧"取不到即 0"兜底）
+        LeadMapper leadMapper = mock(LeadMapper.class);
+        when(leadMapper.selectOverviewCounts()).thenReturn(Map.of());
+        DashboardServiceImpl service = new DashboardServiceImpl(leadMapper, mock(LeadFollowUpMapper.class));
+
+        OverviewVO vo = service.overview();
+
+        assertEquals(0L, vo.getTotalLeads());
+        assertEquals(0L, vo.getPendingManualCount());
         assertEquals(new BigDecimal("0.0000"), vo.getConversionRate());
     }
 

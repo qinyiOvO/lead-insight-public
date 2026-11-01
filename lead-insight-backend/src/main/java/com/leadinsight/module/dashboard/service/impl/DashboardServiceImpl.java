@@ -7,7 +7,6 @@ import com.leadinsight.module.dashboard.vo.TrendVO;
 import com.leadinsight.module.dashboard.service.DashboardService;
 import com.leadinsight.module.followup.mapper.LeadFollowUpMapper;
 import com.leadinsight.module.lead.entity.Lead;
-import com.leadinsight.module.lead.enums.ExtractStatus;
 import com.leadinsight.module.lead.enums.IntentCategory;
 import com.leadinsight.module.lead.enums.LeadStatus;
 import com.leadinsight.module.lead.mapper.LeadMapper;
@@ -40,20 +39,15 @@ public class DashboardServiceImpl implements DashboardService {
 
     @Override
     public OverviewVO overview() {
-        long total = leadMapper.selectCount(null);
-        long invalid = leadMapper.selectCount(Wrappers.<Lead>lambdaQuery()
-                .eq(Lead::getStatus, LeadStatus.INVALID.name()));
-        long won = leadMapper.selectCount(Wrappers.<Lead>lambdaQuery()
-                .eq(Lead::getStatus, LeadStatus.WON.name()));
-        long newCount = leadMapper.selectCount(Wrappers.<Lead>lambdaQuery()
-                .eq(Lead::getStatus, LeadStatus.NEW.name()));
-        long following = leadMapper.selectCount(Wrappers.<Lead>lambdaQuery()
-                .eq(Lead::getStatus, LeadStatus.FOLLOWING.name()));
-        // 待人工 = 线索抽取终态 FAILED/DEGRADED（openapi OverviewVO 口径：lead.extract_status）
-        long pendingManual = leadMapper.selectCount(Wrappers.<Lead>lambdaQuery()
-                .in(Lead::getExtractStatus, List.of(
-                        ExtractStatus.FAILED.name(), ExtractStatus.DEGRADED.name())));
-        return OverviewVO.of(total, invalid, won, newCount, following, pendingManual);
+        // P-05 / §5.2-Q13：6 条 COUNT 合并为 1 条条件聚合（6 次扫描 → 1 次）
+        Map<String, Object> row = leadMapper.selectOverviewCounts();
+        return OverviewVO.of(
+                countOf(row, "total"),
+                countOf(row, "invalid_count"),
+                countOf(row, "won_count"),
+                countOf(row, "new_count"),
+                countOf(row, "following_count"),
+                countOf(row, "pending_manual"));
     }
 
     @Override
@@ -90,6 +84,8 @@ public class DashboardServiceImpl implements DashboardService {
                 Wrappers.<Lead>query()
                         .select("DATE_FORMAT(created_at, '%Y-%m-%d') as d", "count(*) as cnt")
                         .ge("created_at", start.atStartOfDay())
+                        // P-12c：补上界，避免脏数据/时钟回拨把未来数据计入，同时让范围走索引区间
+                        .lt("created_at", today.plusDays(1).atStartOfDay())
                         .groupBy("d")));
         // 成交时点 = 每线索首次 WON 迁移日（K-4 裁定：per-lead MIN(created_at) 归日，
         // WON 是终态、线索只成交一次，趋势累计与 overview.wonLeads 可互相复算）
@@ -106,6 +102,15 @@ public class DashboardServiceImpl implements DashboardService {
             series.add(TrendVO.of(date, created.getOrDefault(date, 0L), won.getOrDefault(date, 0L)));
         }
         return series;
+    }
+
+    /**
+     * 聚合行取值：兼容 null / BigDecimal（{@code SUM}）/ Long（{@code COUNT}）。
+     * 取不到或非数值一律按 0 处理——空表时看板必须显示 0 而不是空白。
+     */
+    private static long countOf(Map<String, Object> row, String column) {
+        Object value = row == null ? null : row.get(column);
+        return value instanceof Number n ? n.longValue() : 0L;
     }
 
     /** selectMaps 结果（别名为 k/cnt）→ key→计数（value 兼容 Long/BigInteger/Integer） */

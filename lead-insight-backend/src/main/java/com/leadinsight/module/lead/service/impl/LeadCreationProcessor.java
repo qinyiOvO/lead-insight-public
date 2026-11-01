@@ -98,7 +98,7 @@ public class LeadCreationProcessor {
             // 条目状态机（SUCCESS/DEGRADED）据此归桶；限流/熔断/重试/降级编排在 extract 内
             ExtractOutcome outcome = leadExtractService.extract(lead, userId, clientIp);
             extractMessage = outcome.message();
-            leadMapper.updateById(lead);
+            leadMapper.updateExtractFields(lead);
             scoringService.score(lead);
             log.info("批量条目抽取完成: leadId={} taskId={} status={} message={}",
                     lead.getId(), importTaskId, outcome.status(), outcome.message());
@@ -112,7 +112,7 @@ public class LeadCreationProcessor {
             // 返回即时终态。刻意不把模型调用包进 @Transactional：读超时 60s × 3 次的长事务会占满连接池。
             ExtractOutcome outcome = leadExtractService.extract(lead, userId, clientIp);
             extractMessage = outcome.message();
-            leadMapper.updateById(lead);
+            leadMapper.updateExtractFields(lead);
             scoringService.score(lead);
             log.info("线索粘贴抽取完成: leadId={} status={} message={}",
                     lead.getId(), outcome.status(), outcome.message());

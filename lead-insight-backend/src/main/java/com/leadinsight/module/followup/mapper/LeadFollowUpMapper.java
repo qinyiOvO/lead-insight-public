@@ -37,4 +37,15 @@ public interface LeadFollowUpMapper extends BaseMapper<LeadFollowUp> {
             + "WHERE t.first_won >= #{start} "
             + "GROUP BY d")
     List<Map<String, Object>> selectFirstWonDailyCounts(@Param("start") LocalDateTime start);
+
+    /**
+     * 判断该线索是否已有任意跟进留痕（DEF-02 删除前置校验）。
+     *
+     * <p>存在性语义，命中首行即返回，不需要数完全部记录：等价于原
+     * {@code SELECT COUNT(*) ... } 的 {@code count > 0}。表无逻辑删除列，WHERE 口径与原来一致。</p>
+     *
+     * @return 命中返回 1，无记录返回 {@code null}
+     */
+    @Select("SELECT 1 FROM `lead_follow_up` WHERE `lead_id` = #{leadId} LIMIT 1")
+    Integer existsByLeadId(@Param("leadId") Long leadId);
 }
