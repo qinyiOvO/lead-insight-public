@@ -29,6 +29,18 @@ spring:
       write-dates-as-timestamps: false
   mvc:
     throw-exception-if-no-handler-found: false
+  # Redis 连接（仅 app.cache.mode=redis 时才会真正建连）。
+  # Lettuce 为懒连接：memory 模式下这些配置不会触发任何网络动作，未装 Redis 也能启动。
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      # 口令只允许来自环境变量或 application-local.yml（该文件已 gitignore，禁止写入本文件）
+      password: ${REDIS_PASSWORD:}
+      database: 0
+      # 连接/命令超时压到 800ms：Redis 假死时快速失败并走降级，而不是把请求线程挂住
+      timeout: 800ms
+      connect-timeout: 800ms
 
 mybatis-plus:
   configuration:
@@ -106,6 +118,12 @@ security:
 # CORS 白名单（逗号分隔，可按需追加并行验证通道端口，如 :5174~:5178）。
 # 默认值保持用户主环境行为零变化（仅 Vite 默认端口 5173 两种写法）。
 app:
+  # 缓存实现开关（M2）。memory = 进程内（默认，零外部依赖）；redis = 外部 Redis。
+  # 切 redis 时启动期会 PING 探活，连不上直接启动失败；运行期掉线自动降级为内存实现。
+  cache:
+    mode: ${CACHE_MODE:memory}
+    # 所有缓存键的命名空间前缀，多项目共用一个 Redis 实例时用于隔离
+    key-prefix: "li:"
   cors:
     allowed-origins: http://localhost:5173,http://127.0.0.1:5173
   security:

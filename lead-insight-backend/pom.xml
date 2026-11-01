@@ -38,6 +38,15 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
+        <!--
+          Redis（M2）：仅用于 CacheService 的 Redis 实现，业务层注入的是接口。
+          不引入则不满足 ADR-003 的 M2 方案；app.cache.mode 默认 memory，
+          故未安装 Redis 的机器上依然可以启动与跑全部单测。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
 
         <!-- MyBatis-Plus：必须使用 spring-boot3 专用 starter，且显式声明版本 -->
         <dependency>

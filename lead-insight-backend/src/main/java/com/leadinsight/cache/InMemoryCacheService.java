@@ -1,7 +1,5 @@
 package com.leadinsight.cache;
 
-import org.springframework.stereotype.Service;
-
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -13,8 +11,13 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p>注意：单进程内存缓存，多实例部署时不共享；最终一致性真源仍是数据库
  * （如线索指纹以 MySQL 唯一索引 uk_lead_fingerprint 兜底）。</p>
+ *
+ * <p><b>为什么不再挂 {@code @Service}：</b>M2 引入 Redis 实现后，若两个实现都被组件扫描，
+ * 容器里会有两个 {@code CacheService}，而注入点（{@code AuthServiceImpl}、
+ * {@code LeadDedupServiceImpl}）是按接口单值注入且没有 {@code @Qualifier}，
+ * 会直接 {@code NoUniqueBeanDefinitionException} 起不来。
+ * 故本类改为普通类，由 {@link CacheConfig} 按 {@code app.cache.mode} 显式装配。</p>
  */
-@Service
 public class InMemoryCacheService implements CacheService {
 
     /** 每 N 次写入触发一次过期键清理，避免无界增长 */
